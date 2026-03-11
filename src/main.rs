@@ -1,0 +1,146 @@
+use clap::Parser;
+use apiforge::cli::{Cli, Commands};
+use apiforge::config::Config;
+use std::path::PathBuf;
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let cli = Cli::parse();
+
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| {
+                    if cli.debug {
+                        "apiforge=debug".into()
+                    } else {
+                        "apiforge=info".into()
+                    }
+                }),
+        )
+        .without_time()
+        .init();
+
+    match cli.command {
+        Commands::Init(args) => cmd_init(args).await,
+        Commands::Doctor => cmd_doctor(&cli.config).await,
+        Commands::Release(args) => cmd_release(&cli.config, args).await,
+        Commands::Rollback(args) => cmd_rollback(&cli.config, args).await,
+        Commands::History(args) => cmd_history(args).await,
+        Commands::Status => cmd_status(&cli.config).await,
+    }
+}
+
+async fn cmd_init(args: apiforge::cli::InitArgs) -> anyhow::Result<()> {
+    let name = args.name.unwrap_or_else(|| {
+        std::env::current_dir()
+            .ok()
+            .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string()))
+            .unwrap_or_else(|| "my-project".to_string())
+    });
+
+    let config_path = PathBuf::from("apiforge.toml");
+    if config_path.exists() && !args.force {
+        anyhow::bail!("apiforge.toml already exists. Use --force to overwrite.");
+    }
+
+    println!("Initializing apiforge for '{}'...", name);
+    println!("Created apiforge.toml — edit it to match your project setup.");
+    Ok(())
+}
+
+async fn cmd_doctor(config_path: &str) -> anyhow::Result<()> {
+    println!("Running environment checks...\n");
+
+    let checks: Vec<(&str, fn() -> bool)> = vec![
+        ("git", || which::which("git").is_ok()),
+        ("docker", || which::which("docker").is_ok()),
+        ("kubectl", || which::which("kubectl").is_ok()),
+        ("aws", || which::which("aws").is_ok()),
+    ];
+
+    for (name, check) in &checks {
+        let status = if check() { "OK" } else { "MISSING" };
+        println!("  {} ... {}", name, status);
+    }
+
+    let path = PathBuf::from(config_path);
+    if path.exists() {
+        match Config::from_file(&path) {
+            Ok(_) => println!("\n  config ... OK"),
+            Err(e) => println!("\n  config ... INVALID ({})", e),
+        }
+    } else {
+        println!("\n  config ... NOT FOUND (run `apiforge init`)");
+    }
+
+    Ok(())
+}
+
+async fn cmd_release(config_path: &str, args: apiforge::cli::ReleaseArgs) -> anyhow::Result<()> {
+    let path = PathBuf::from(config_path);
+    let _config = Config::from_file(&path)?;
+
+    if args.dry_run {
+        println!("[dry-run] Would release {} bump", args.bump);
+    } else {
+        println!("Release pipeline not yet wired. Run with --dry-run to preview.");
+    }
+
+    Ok(())
+}
+
+async fn cmd_rollback(config_path: &str, args: apiforge::cli::RollbackArgs) -> anyhow::Result<()> {
+    let _path = PathBuf::from(config_path);
+
+    if args.dry_run {
+        println!("[dry-run] Would roll back to {}", args.to.as_deref().unwrap_or("previous"));
+    } else {
+        println!("Rollback not yet implemented.");
+    }
+
+    Ok(())
+}
+
+async fn cmd_history(args: apiforge::cli::HistoryArgs) -> anyhow::Result<()> {
+    let store = apiforge::audit::AuditStore::open(std::path::Path::new(".apiforge/audit"))?;
+    let records = store.list(args.limit)?;
+
+    if records.is_empty() {
+        println!("No release history found.");
+        return Ok(());
+    }
+
+    for record in records {
+        println!(
+            "{} | {} | {} | {}",
+            record.timestamp, record.version, record.bump_type, record.status
+        );
+    }
+
+    Ok(())
+}
+
+async fn cmd_status(config_path: &str) -> anyhow::Result<()> {
+    let path = PathBuf::from(config_path);
+    if !path.exists() {
+        anyhow::bail!("No apiforge.toml found. Run `apiforge init` first.");
+    }
+
+    let config = Config::from_file(&path)?;
+    println!("Project: {}", config.project.name);
+    println!("Language: {:?}", config.project.language);
+
+    if let Ok(repo) = apiforge::integrations::git::GitRepo::open() {
+        if let Ok(branch) = repo.current_branch() {
+            println!("Branch: {}", branch);
+        }
+        if let Ok(tag) = repo.get_latest_tag("*") {
+            if let Some(t) = tag {
+                println!("Latest tag: {}", t);
+            }
+        }
+    }
+
+    Ok(())
+}
