@@ -1,0 +1,29 @@
+# Rust
+/target/
+Cargo.lock
+**/*.rs.bk
+*.pdb
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# ApiForge
+apiforge.toml
+.apiforge/
+
+# Reference docs (local only)
+AWS_sdkrust.md
+bollard.md
+git2.md
+kube-rs.md
+library.md
+rust.md
+tokio.md
