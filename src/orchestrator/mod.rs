@@ -27,11 +27,11 @@ impl ReleaseOrchestrator {
         self.steps.push(step);
     }
 
-    pub fn preflight(&self, ctx: &StepContext) -> Result<()> {
+    pub async fn preflight(&self, ctx: &StepContext) -> Result<()> {
         self.output.section("Pre-flight checks");
         for step in &self.steps {
             self.output.step_status(step.name(), "validating...");
-            step.validate(ctx)?;
+            step.validate(ctx).await?;
             self.output.step_ok(step.name());
         }
         self.output.blank_line();
@@ -39,13 +39,13 @@ impl ReleaseOrchestrator {
     }
 
     pub async fn run(&self) -> Result<Vec<StepOutput>> {
-        let mut ctx = StepContext {
+        let ctx = StepContext {
             config: self.config.clone(),
             dry_run: self.dry_run,
             state: HashMap::new(),
         };
 
-        self.preflight(&ctx)?;
+        self.preflight(&ctx).await?;
 
         let mode = if self.dry_run { "Dry-run" } else { "Executing" };
         self.output.section(&format!("{} release pipeline", mode));
@@ -56,9 +56,9 @@ impl ReleaseOrchestrator {
             self.output.step_status(step.name(), "running...");
 
             let result = if self.dry_run {
-                step.dry_run(&ctx)
+                step.dry_run(&ctx).await
             } else {
-                step.execute(&mut ctx).await
+                step.execute(&ctx).await
             };
 
             let elapsed = step_start.elapsed();

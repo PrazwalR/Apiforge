@@ -79,13 +79,54 @@ async fn cmd_doctor(config_path: &str) -> anyhow::Result<()> {
 
 async fn cmd_release(config_path: &str, args: apiforge::cli::ReleaseArgs) -> anyhow::Result<()> {
     let path = PathBuf::from(config_path);
-    let _config = Config::from_file(&path)?;
+    let config = Config::from_file(&path)?;
 
-    if args.dry_run {
-        println!("[dry-run] Would release {} bump", args.bump);
+    let bump_type = apiforge::utils::BumpType::from_str(&args.bump)?;
+
+    let repo = apiforge::integrations::git::GitRepo::open()?;
+    let version_file = config.project.language.version_file();
+    let version_path = repo.root_path().join(version_file);
+    
+    let current_version = if config.project.language == apiforge::config::Language::Rust {
+        let content = std::fs::read_to_string(&version_path)?;
+        let doc: toml::Value = toml::from_str(&content)?;
+        doc.get("package")
+            .and_then(|p| p.get("version"))
+            .and_then(|v| v.as_str())
+            .map(String::from)
+            .ok_or_else(|| anyhow::anyhow!("No version in Cargo.toml"))?
     } else {
-        println!("Release pipeline not yet wired. Run with --dry-run to preview.");
+        anyhow::bail!("Only Rust projects supported currently");
+    };
+
+    let new_version = apiforge::utils::bump_version(&current_version, bump_type)?;
+    let new_version_str = new_version.to_string();
+
+    let previous_tag = repo.get_latest_tag(&config.git.tag_format.replace("{version}", "*"))?;
+
+    let mut orchestrator = apiforge::orchestrator::ReleaseOrchestrator::new(
+        config.clone(),
+        args.dry_run,
+    );
+
+    orchestrator.add_step(Box::new(apiforge::steps::git::GitPreflightStep::new()));
+    orchestrator.add_step(Box::new(apiforge::steps::git::VersionBumpStep::new(bump_type)));
+    
+    if config.git.changelog && !args.no_changelog {
+        orchestrator.add_step(Box::new(apiforge::steps::git::ChangelogStep::new(
+            new_version_str.clone(),
+            previous_tag.clone(),
+        )));
     }
+    
+    orchestrator.add_step(Box::new(apiforge::steps::git::GitCommitStep::new(new_version_str.clone())));
+    orchestrator.add_step(Box::new(apiforge::steps::git::GitTagStep::new(new_version.clone())));
+    orchestrator.add_step(Box::new(apiforge::steps::git::GitPushStep::new(new_version.clone())));
+
+    let outputs = orchestrator.run().await?;
+
+    println!("\n✨ Release {} complete!", new_version);
+    println!("   {} steps executed successfully", outputs.len());
 
     Ok(())
 }
