@@ -1,7 +1,5 @@
 use crate::error::{GitError, Result};
-use git2::{
-    BranchType, Cred, ObjectType, PushOptions, RemoteCallbacks, Repository,
-};
+use git2::{BranchType, Cred, ObjectType, PushOptions, RemoteCallbacks, Repository};
 use std::path::{Path, PathBuf};
 
 pub struct GitRepo {
@@ -73,21 +71,22 @@ impl GitRepo {
             .find_branch(branch, BranchType::Local)
             .map_err(|e| GitError::GitOperation(format!("Failed to find local branch: {}", e)))?;
 
-        let local_oid = local_branch
-            .get()
-            .target()
-            .ok_or_else(|| GitError::GitOperation("Failed to get local branch target".to_string()))?;
+        let local_oid = local_branch.get().target().ok_or_else(|| {
+            GitError::GitOperation("Failed to get local branch target".to_string())
+        })?;
 
         let remote_branch_name = format!("{}/{}", remote, branch);
-        let remote_branch = match self.repo.find_branch(&remote_branch_name, BranchType::Remote) {
+        let remote_branch = match self
+            .repo
+            .find_branch(&remote_branch_name, BranchType::Remote)
+        {
             Ok(b) => b,
             Err(_) => return Ok((0, 0)),
         };
 
-        let remote_oid = remote_branch
-            .get()
-            .target()
-            .ok_or_else(|| GitError::GitOperation("Failed to get remote branch target".to_string()))?;
+        let remote_oid = remote_branch.get().target().ok_or_else(|| {
+            GitError::GitOperation("Failed to get remote branch target".to_string())
+        })?;
 
         let (ahead, behind) = self
             .repo
@@ -103,10 +102,7 @@ impl GitRepo {
             .tag_names(Some(pattern))
             .map_err(|e| GitError::GitOperation(format!("Failed to get tags: {}", e)))?;
 
-        let mut tag_list: Vec<String> = tags
-            .iter()
-            .filter_map(|t| t.map(String::from))
-            .collect();
+        let mut tag_list: Vec<String> = tags.iter().filter_map(|t| t.map(String::from)).collect();
 
         tag_list.sort_by(|a, b| {
             let a_ver = semver::Version::parse(a.trim_start_matches('v'));
@@ -180,9 +176,10 @@ impl GitRepo {
             .write_tree()
             .map_err(|e| GitError::CommitFailed(format!("Failed to write tree: {}", e)))?;
 
-        let tree = self.repo.find_tree(tree_oid).map_err(|e| {
-            GitError::CommitFailed(format!("Failed to find tree: {}", e))
-        })?;
+        let tree = self
+            .repo
+            .find_tree(tree_oid)
+            .map_err(|e| GitError::CommitFailed(format!("Failed to find tree: {}", e)))?;
 
         let parent_commit = self
             .repo
@@ -278,7 +275,10 @@ impl GitRepo {
     }
 
     pub fn root_path(&self) -> PathBuf {
-        self.repo.workdir().unwrap_or_else(|| Path::new(".")).to_path_buf()
+        self.repo
+            .workdir()
+            .unwrap_or_else(|| Path::new("."))
+            .to_path_buf()
     }
 
     pub fn remote_exists(&self, remote: &str) -> bool {

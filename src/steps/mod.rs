@@ -53,15 +53,17 @@ impl std::fmt::Display for StepStatus {
     }
 }
 
+pub mod git;
+
 #[async_trait]
 pub trait Step: Send + Sync {
     fn name(&self) -> &str;
     fn description(&self) -> &str;
-    fn validate(&self, ctx: &StepContext) -> Result<()>;
-    async fn execute(&self, ctx: &mut StepContext) -> Result<StepOutput>;
-    fn dry_run(&self, ctx: &StepContext) -> Result<StepOutput>;
+    async fn validate(&self, ctx: &StepContext) -> Result<()>;
+    async fn execute(&self, ctx: &StepContext) -> Result<StepOutput>;
+    async fn dry_run(&self, ctx: &StepContext) -> Result<StepOutput>;
 
-    async fn rollback(&self, _ctx: &mut StepContext) -> Result<()> {
+    async fn rollback(&self, _ctx: &StepContext) -> Result<()> {
         Ok(())
     }
 }
