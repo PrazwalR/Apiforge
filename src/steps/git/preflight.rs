@@ -23,7 +23,7 @@ impl Step for GitPreflightStep {
 
     async fn validate(&self, ctx: &StepContext) -> Result<()> {
         let repo = GitRepo::open()?;
-        
+
         if ctx.config.git.require_clean && !repo.is_working_tree_clean()? {
             let changes = repo.get_uncommitted_changes()?;
             return Err(GitError::DirtyWorkingTree(format!(

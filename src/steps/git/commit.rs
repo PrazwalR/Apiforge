@@ -32,7 +32,7 @@ impl Step for GitCommitStep {
 
     async fn execute(&self, ctx: &StepContext) -> Result<StepOutput> {
         let repo = GitRepo::open()?;
-        
+
         let version_file = ctx.config.project.language.version_file();
         repo.add(std::path::Path::new(version_file))?;
 
@@ -60,6 +60,9 @@ impl Step for GitCommitStep {
         let mut engine = TemplateEngine::new();
         let message = engine.render(&ctx.config.git.commit_message, &template_ctx)?;
 
-        Ok(StepOutput::ok(format!("Would commit with message: {}", message)))
+        Ok(StepOutput::ok(format!(
+            "Would commit with message: {}",
+            message
+        )))
     }
 }

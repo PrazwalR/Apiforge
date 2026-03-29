@@ -58,8 +58,9 @@ impl VersionBumpStep {
 
         json["version"] = serde_json::Value::String(new_version.to_string());
 
-        let pretty = serde_json::to_string_pretty(&json)
-            .map_err(|e| ApiForgError::Serialization(format!("Failed to serialize package.json: {}", e)))?;
+        let pretty = serde_json::to_string_pretty(&json).map_err(|e| {
+            ApiForgError::Serialization(format!("Failed to serialize package.json: {}", e))
+        })?;
         fs::write(path, format!("{}\n", pretty))?;
         Ok(())
     }
@@ -120,7 +121,7 @@ impl Step for VersionBumpStep {
         let path = self.get_version_file_path(ctx)?;
         let current = self.read_version(ctx, &path)?;
         let new_version = bump_version(&current, self.bump_type)?;
-        
+
         self.write_version(ctx, &path, &new_version.to_string())?;
 
         Ok(StepOutput::ok(format!(
@@ -143,9 +144,10 @@ impl Step for VersionBumpStep {
     async fn rollback(&self, ctx: &StepContext) -> Result<()> {
         let repo = GitRepo::open()?;
         let path = self.get_version_file_path(ctx)?;
-        let rel_path = path.strip_prefix(repo.root_path())
+        let rel_path = path
+            .strip_prefix(repo.root_path())
             .map_err(|_| ApiForgError::Config("Invalid path".to_string()))?;
-        
+
         repo.add(rel_path)?;
         Ok(())
     }
