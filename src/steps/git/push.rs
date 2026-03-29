@@ -28,10 +28,9 @@ impl Step for GitPushStep {
     async fn validate(&self, ctx: &StepContext) -> Result<()> {
         let repo = GitRepo::open()?;
         if !repo.remote_exists(&ctx.config.git.remote) {
-            return Err(crate::error::GitError::RemoteNotFound(
-                ctx.config.git.remote.clone(),
-            )
-            .into());
+            return Err(
+                crate::error::GitError::RemoteNotFound(ctx.config.git.remote.clone()).into(),
+            );
         }
         Ok(())
     }
@@ -40,7 +39,7 @@ impl Step for GitPushStep {
         let repo = GitRepo::open()?;
         let remote = &ctx.config.git.remote;
         let branch = repo.current_branch()?;
-        
+
         repo.push(remote, &format!("refs/heads/{}", branch))?;
 
         let tag_name = format_version(&self.version, &ctx.config.git.tag_format);

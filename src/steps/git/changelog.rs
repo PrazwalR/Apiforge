@@ -26,8 +26,12 @@ impl ChangelogStep {
     ) -> String {
         let mut output = String::new();
         let now: DateTime<Utc> = Utc::now();
-        
-        output.push_str(&format!("## [{}] - {}\n\n", version, now.format("%Y-%m-%d")));
+
+        output.push_str(&format!(
+            "## [{}] - {}\n\n",
+            version,
+            now.format("%Y-%m-%d")
+        ));
 
         if commits.is_empty() {
             output.push_str("No changes recorded.\n\n");
@@ -45,7 +49,11 @@ impl ChangelogStep {
             }
 
             if msg.starts_with("feat:") || msg.starts_with("feature:") {
-                features.push(msg.trim_start_matches("feat:").trim_start_matches("feature:").trim());
+                features.push(
+                    msg.trim_start_matches("feat:")
+                        .trim_start_matches("feature:")
+                        .trim(),
+                );
             } else if msg.starts_with("fix:") {
                 fixes.push(msg.trim_start_matches("fix:").trim());
             } else {
@@ -123,18 +131,15 @@ impl Step for ChangelogStep {
 
     async fn execute(&self, _ctx: &StepContext) -> Result<StepOutput> {
         let repo = GitRepo::open()?;
-        
+
         let commits = if let Some(ref prev_tag) = self.previous_tag {
             repo.get_commits_between(prev_tag, "HEAD")?
         } else {
             Vec::new()
         };
 
-        let changelog_content = Self::format_changelog(
-            &self.version,
-            &commits,
-            self.previous_tag.as_deref(),
-        );
+        let changelog_content =
+            Self::format_changelog(&self.version, &commits, self.previous_tag.as_deref());
 
         let path = self.get_changelog_path()?;
         self.prepend_to_changelog(&path, &changelog_content)?;
@@ -147,7 +152,7 @@ impl Step for ChangelogStep {
 
     async fn dry_run(&self, _ctx: &StepContext) -> Result<StepOutput> {
         let repo = GitRepo::open()?;
-        
+
         let commits = if let Some(ref prev_tag) = self.previous_tag {
             repo.get_commits_between(prev_tag, "HEAD")?
         } else {
