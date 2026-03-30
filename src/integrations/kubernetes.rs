@@ -287,4 +287,153 @@ impl K8sClient {
     pub fn context(&self) -> &str {
         &self.context
     }
+
+    /// Rollback a deployment to a previous revision.
+    /// If `revision` is None, rolls back to the previous revision.
+    /// If `revision` is Some(n), rolls back to revision n.
+    pub async fn rollback_deployment(
+        &self,
+        namespace: &str,
+        deployment_name: &str,
+        revision: Option<i64>,
+    ) -> Result<()> {
+        let deployments: Api<Deployment> = Api::namespaced(self.client.clone(), namespace);
+        
+        // Get the deployment to verify it exists and get current state
+        let deployment = self.get_deployment(namespace, deployment_name).await?;
+        
+        // Get the ReplicaSets to find the revision to rollback to
+        use k8s_openapi::api::apps::v1::ReplicaSet;
+        let replicasets: Api<ReplicaSet> = Api::namespaced(self.client.clone(), namespace);
+        
+        // Get selector labels from deployment
+        let match_labels = deployment
+            .spec
+            .as_ref()
+            .and_then(|s| s.selector.match_labels.clone())
+            .unwrap_or_default();
+        
+        let label_selector = match_labels
+            .iter()
+            .map(|(k, v)| format!("{}={}", k, v))
+            .collect::<Vec<_>>()
+            .join(",");
+        
+        let list_params = ListParams::default().labels(&label_selector);
+        let rs_list = replicasets
+            .list(&list_params)
+            .await
+            .map_err(|e| K8sError::KubeApi(format!("Failed to list ReplicaSets: {}", e)))?;
+        
+        // Sort ReplicaSets by revision annotation (descending)
+        let mut replica_sets: Vec<_> = rs_list.items.into_iter().collect();
+        replica_sets.sort_by(|a, b| {
+            let rev_a = a.metadata.annotations.as_ref()
+                .and_then(|ann| ann.get("deployment.kubernetes.io/revision"))
+                .and_then(|v| v.parse::<i64>().ok())
+                .unwrap_or(0);
+            let rev_b = b.metadata.annotations.as_ref()
+                .and_then(|ann| ann.get("deployment.kubernetes.io/revision"))
+                .and_then(|v| v.parse::<i64>().ok())
+                .unwrap_or(0);
+            rev_b.cmp(&rev_a)  // Descending order
+        });
+        
+        // Find the target revision
+        let target_rs = if let Some(target_rev) = revision {
+            // Find specific revision
+            replica_sets.iter().find(|rs| {
+                rs.metadata.annotations.as_ref()
+                    .and_then(|ann| ann.get("deployment.kubernetes.io/revision"))
+                    .and_then(|v| v.parse::<i64>().ok())
+                    == Some(target_rev)
+            })
+        } else {
+            // Get the second most recent revision (previous)
+            replica_sets.get(1)
+        };
+        
+        let target_rs = target_rs.ok_or_else(|| {
+            K8sError::RolloutFailed("No previous revision found to rollback to".to_string())
+        })?;
+        
+        // Extract the pod template spec from the target ReplicaSet
+        let target_template = target_rs
+            .spec
+            .as_ref()
+            .map(|s| s.template.clone())
+            .ok_or_else(|| K8sError::RolloutFailed("Target ReplicaSet has no template".to_string()))?;
+        
+        // Patch the deployment with the previous pod template
+        // This mimics `kubectl rollout undo`
+        let patch = serde_json::json!({
+            "spec": {
+                "template": target_template
+            }
+        });
+        
+        let patch_params = PatchParams::apply("apiforge-rollback");
+        deployments
+            .patch(deployment_name, &patch_params, &Patch::Strategic(patch))
+            .await
+            .map_err(|e| K8sError::KubeApi(format!("Failed to rollback deployment: {}", e)))?;
+        
+        tracing::info!(
+            "Rolled back deployment {} to previous revision",
+            deployment_name
+        );
+        
+        Ok(())
+    }
+    
+    /// Get the current revision number of a deployment
+    pub async fn get_deployment_revision(&self, namespace: &str, deployment_name: &str) -> Result<Option<i64>> {
+        let deployment = self.get_deployment(namespace, deployment_name).await?;
+        
+        Ok(deployment.metadata.annotations.as_ref()
+            .and_then(|ann| ann.get("deployment.kubernetes.io/revision"))
+            .and_then(|v| v.parse::<i64>().ok()))
+    }
+    
+    /// List available revisions for a deployment
+    pub async fn list_deployment_revisions(
+        &self,
+        namespace: &str,
+        deployment_name: &str,
+    ) -> Result<Vec<i64>> {
+        use k8s_openapi::api::apps::v1::ReplicaSet;
+        
+        let deployment = self.get_deployment(namespace, deployment_name).await?;
+        let replicasets: Api<ReplicaSet> = Api::namespaced(self.client.clone(), namespace);
+        
+        // Get selector labels from deployment
+        let match_labels = deployment
+            .spec
+            .as_ref()
+            .and_then(|s| s.selector.match_labels.clone())
+            .unwrap_or_default();
+        
+        let label_selector = match_labels
+            .iter()
+            .map(|(k, v)| format!("{}={}", k, v))
+            .collect::<Vec<_>>()
+            .join(",");
+        
+        let list_params = ListParams::default().labels(&label_selector);
+        let rs_list = replicasets
+            .list(&list_params)
+            .await
+            .map_err(|e| K8sError::KubeApi(format!("Failed to list ReplicaSets: {}", e)))?;
+        
+        let mut revisions: Vec<i64> = rs_list.items.iter()
+            .filter_map(|rs| {
+                rs.metadata.annotations.as_ref()
+                    .and_then(|ann| ann.get("deployment.kubernetes.io/revision"))
+                    .and_then(|v| v.parse::<i64>().ok())
+            })
+            .collect();
+        
+        revisions.sort_by(|a, b| b.cmp(a));  // Descending
+        Ok(revisions)
+    }
 }
