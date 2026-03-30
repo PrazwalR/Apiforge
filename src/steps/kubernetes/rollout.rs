@@ -96,13 +96,21 @@ impl Step for K8sRolloutStep {
     async fn rollback(&self, ctx: &StepContext) -> Result<()> {
         let k8s = K8sClient::new(&ctx.config.kubernetes.context).await?;
 
-        // Rollback by restarting the deployment (K8s will use previous revision)
-        tracing::info!("Rolling back deployment {}", ctx.config.kubernetes.deployment);
+        tracing::info!(
+            "Rolling back deployment {} to previous revision",
+            ctx.config.kubernetes.deployment
+        );
 
-        // In a real implementation, we'd use kubectl rollout undo or similar
-        // For now, we'll just log that rollback is needed
-        tracing::warn!(
-            "Manual rollback may be required for deployment {}",
+        // Actually perform the rollback using the K8s API
+        k8s.rollback_deployment(
+            &ctx.config.kubernetes.namespace,
+            &ctx.config.kubernetes.deployment,
+            None,  // Roll back to previous revision
+        )
+        .await?;
+
+        tracing::info!(
+            "Successfully rolled back deployment {}",
             ctx.config.kubernetes.deployment
         );
 

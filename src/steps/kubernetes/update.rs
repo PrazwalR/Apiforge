@@ -99,4 +99,28 @@ impl Step for K8sUpdateStep {
             new_image
         )))
     }
+
+    async fn rollback(&self, ctx: &StepContext) -> Result<()> {
+        let k8s = K8sClient::new(&ctx.config.kubernetes.context).await?;
+
+        tracing::info!(
+            "Rolling back deployment {} image change",
+            ctx.config.kubernetes.deployment
+        );
+
+        // Roll back to the previous revision (the one before our update)
+        k8s.rollback_deployment(
+            &ctx.config.kubernetes.namespace,
+            &ctx.config.kubernetes.deployment,
+            None,  // Previous revision
+        )
+        .await?;
+
+        tracing::info!(
+            "Successfully rolled back deployment {} to previous image",
+            ctx.config.kubernetes.deployment
+        );
+
+        Ok(())
+    }
 }

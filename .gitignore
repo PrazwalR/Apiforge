@@ -27,3 +27,6 @@ kube-rs.md
 library.md
 rust.md
 tokio.md
+
+# Copilot session state
+.copilot/
