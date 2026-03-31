@@ -75,17 +75,20 @@ impl Step for K8sUpdateStep {
         let k8s = K8sClient::new(&ctx.config.kubernetes.context).await?;
         let new_image = self.get_full_image(ctx).await?;
 
+        // Use image_field from config (can be container name or index like "0", "app", "api")
+        let container = &ctx.config.kubernetes.image_field;
+        
         k8s.update_deployment_image(
             &ctx.config.kubernetes.namespace,
             &ctx.config.kubernetes.deployment,
-            0, // First container
+            container,
             &new_image,
         )
         .await?;
 
         Ok(StepOutput::ok(format!(
-            "Updated deployment {} to {}",
-            ctx.config.kubernetes.deployment, new_image
+            "Updated deployment {} container '{}' to {}",
+            ctx.config.kubernetes.deployment, container, new_image
         )))
     }
 

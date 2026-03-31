@@ -22,7 +22,7 @@ impl GitHubClient {
         let octocrab = Octocrab::builder()
             .personal_token(token.to_string())
             .build()
-            .map_err(|e| GitHubError::TokenInvalid)?;
+            .map_err(|_e| GitHubError::TokenInvalid)?;
 
         let (owner, repo) = parse_repository(repository)?;
 

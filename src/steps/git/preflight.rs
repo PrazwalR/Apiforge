@@ -5,6 +5,12 @@ use async_trait::async_trait;
 
 pub struct GitPreflightStep;
 
+impl Default for GitPreflightStep {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GitPreflightStep {
     pub fn new() -> Self {
         Self

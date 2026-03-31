@@ -47,8 +47,7 @@ impl SlackNotifyStep {
             return Err(ApiForgError::StepFailed(format!(
                 "Slack returned error {}: {}",
                 status, body
-            ))
-            .into());
+            )));
         }
 
         Ok(())
@@ -70,7 +69,7 @@ impl Step for SlackNotifyStep {
         let slack = notifications.and_then(|n| n.slack.as_ref());
 
         if slack.is_none() {
-            return Err(ApiForgError::Config("Slack configuration missing".to_string()).into());
+            return Err(ApiForgError::Config("Slack configuration missing".to_string()));
         }
 
         Ok(())

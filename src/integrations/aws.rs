@@ -55,12 +55,12 @@ impl AwsClient {
 
         let account = response
             .account()
-            .ok_or_else(|| AwsError::CredentialsInvalid)?
+            .ok_or(AwsError::CredentialsInvalid)?
             .to_string();
 
         let arn = response
             .arn()
-            .ok_or_else(|| AwsError::CredentialsInvalid)?
+            .ok_or(AwsError::CredentialsInvalid)?
             .to_string();
 
         Ok((account, arn))
@@ -124,7 +124,11 @@ impl AwsClient {
                     .first()
                     .ok_or_else(|| AwsError::EcrRepoNotFound(repo_name.to_string()))?;
 
-                Ok(repo.repository_uri().unwrap_or("").to_string())
+                repo.repository_uri()
+                    .map(|s| s.to_string())
+                    .ok_or_else(|| AwsError::SdkError(format!(
+                        "Repository '{}' exists but has no URI", repo_name
+                    )).into())
             }
             Err(e) => {
                 // Check if it's a RepositoryNotFoundException
@@ -156,7 +160,11 @@ impl AwsClient {
             .repository()
             .ok_or_else(|| AwsError::SdkError("No repository in response".to_string()))?;
 
-        Ok(repo.repository_uri().unwrap_or("").to_string())
+        repo.repository_uri()
+            .map(|s| s.to_string())
+            .ok_or_else(|| AwsError::SdkError(format!(
+                "Created repository '{}' but it has no URI", repo_name
+            )).into())
     }
 
     pub async fn list_image_tags(&self, repo_name: &str) -> Result<Vec<String>> {

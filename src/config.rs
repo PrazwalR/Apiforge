@@ -226,9 +226,42 @@ impl Config {
     }
 
     pub fn validate(&self) -> crate::error::Result<()> {
+        // Git validations
         if !self.git.tag_format.contains("{version}") {
             return Err(crate::error::ApiForgError::Config(
                 "git.tag_format must contain {version} placeholder".to_string(),
+            ));
+        }
+
+        // Docker validations
+        if self.docker.repository.is_empty() {
+            return Err(crate::error::ApiForgError::Config(
+                "docker.repository cannot be empty".to_string(),
+            ));
+        }
+
+        if self.docker.tags.is_empty() {
+            return Err(crate::error::ApiForgError::Config(
+                "docker.tags must have at least one tag pattern".to_string(),
+            ));
+        }
+
+        // Kubernetes validations
+        if self.kubernetes.namespace.is_empty() {
+            return Err(crate::error::ApiForgError::Config(
+                "kubernetes.namespace cannot be empty".to_string(),
+            ));
+        }
+
+        if self.kubernetes.deployment.is_empty() {
+            return Err(crate::error::ApiForgError::Config(
+                "kubernetes.deployment cannot be empty".to_string(),
+            ));
+        }
+
+        if self.kubernetes.context.is_empty() {
+            return Err(crate::error::ApiForgError::Config(
+                "kubernetes.context cannot be empty".to_string(),
             ));
         }
 
@@ -236,6 +269,45 @@ impl Config {
             return Err(crate::error::ApiForgError::Config(
                 "kubernetes.min_ready_percent must be between 0-100".to_string(),
             ));
+        }
+
+        if self.kubernetes.rollout_timeout == 0 {
+            return Err(crate::error::ApiForgError::Config(
+                "kubernetes.rollout_timeout must be greater than 0".to_string(),
+            ));
+        }
+
+        // AWS region validation (if ECR is used)
+        if matches!(self.docker.registry, DockerRegistry::AwsEcr) && self.aws.region.is_empty() {
+            return Err(crate::error::ApiForgError::Config(
+                "aws.region is required when using ECR registry".to_string(),
+            ));
+        }
+
+        // Health check validations
+        if let Some(ref hc) = self.health_check {
+            if hc.url.is_empty() {
+                return Err(crate::error::ApiForgError::Config(
+                    "health_check.url cannot be empty".to_string(),
+                ));
+            }
+            
+            if hc.timeout == 0 {
+                return Err(crate::error::ApiForgError::Config(
+                    "health_check.timeout must be greater than 0".to_string(),
+                ));
+            }
+        }
+
+        // Notification validations
+        if let Some(ref notify) = self.notifications {
+            if let Some(ref slack) = notify.slack {
+                if slack.webhook_url.is_empty() {
+                    return Err(crate::error::ApiForgError::Config(
+                        "notifications.slack.webhook_url cannot be empty".to_string(),
+                    ));
+                }
+            }
         }
 
         Ok(())

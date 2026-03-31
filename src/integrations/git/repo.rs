@@ -297,6 +297,53 @@ impl GitRepo {
 
         Ok(url.to_string())
     }
+
+    /// Check if a tag already exists
+    pub fn tag_exists(&self, tag_name: &str) -> Result<bool> {
+        match self.repo.find_reference(&format!("refs/tags/{}", tag_name)) {
+            Ok(_) => Ok(true),
+            Err(e) if e.code() == git2::ErrorCode::NotFound => Ok(false),
+            Err(e) => Err(GitError::GitOperation(format!("Failed to check tag: {}", e)).into()),
+        }
+    }
+
+    /// Checkout (restore) a file from HEAD, discarding local changes
+    pub fn checkout_file(&self, path: &Path) -> Result<()> {
+        let head = self
+            .repo
+            .head()
+            .map_err(|e| GitError::GitOperation(format!("Failed to get HEAD: {}", e)))?;
+
+        let tree = head
+            .peel_to_tree()
+            .map_err(|e| GitError::GitOperation(format!("Failed to get tree: {}", e)))?;
+
+        let mut checkout_builder = git2::build::CheckoutBuilder::new();
+        checkout_builder.path(path);
+        checkout_builder.force();
+
+        self.repo
+            .checkout_tree(tree.as_object(), Some(&mut checkout_builder))
+            .map_err(|e| GitError::GitOperation(format!("Failed to checkout file: {}", e)))?;
+
+        Ok(())
+    }
+
+    /// Delete a tag (for rollback)
+    pub fn delete_tag(&self, tag_name: &str) -> Result<()> {
+        let refname = format!("refs/tags/{}", tag_name);
+        
+        let mut reference = self
+            .repo
+            .find_reference(&refname)
+            .map_err(|e| GitError::GitOperation(format!("Tag not found: {}", e)))?;
+
+        reference
+            .delete()
+            .map_err(|e| GitError::GitOperation(format!("Failed to delete tag: {}", e)))?;
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
