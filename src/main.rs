@@ -355,9 +355,6 @@ async fn cmd_release(config_path: &str, args: apiforge::cli::ReleaseArgs) -> any
         }
     }
 
-    println!("\n{}", format!("✨ Release {} complete!", new_version).green().bold());
-    println!("   {} steps executed successfully", outputs.len());
-
     // Record in audit log
     let audit_dir = std::path::Path::new(".apiforge/audit");
     if let Ok(store) = apiforge::audit::AuditStore::open(audit_dir) {
@@ -367,6 +364,25 @@ async fn cmd_release(config_path: &str, args: apiforge::cli::ReleaseArgs) -> any
             args.dry_run,
         );
         let _ = store.record(&record);
+    }
+
+    // Output results
+    if args.output == "json" {
+        let result = serde_json::json!({
+            "success": true,
+            "version": new_version_str,
+            "bump_type": bump_type.to_string(),
+            "dry_run": args.dry_run,
+            "steps": outputs.iter().map(|o| serde_json::json!({
+                "status": o.status.to_string(),
+                "message": o.message,
+                "duration_ms": o.duration_ms
+            })).collect::<Vec<_>>()
+        });
+        println!("{}", serde_json::to_string_pretty(&result)?);
+    } else {
+        println!("\n{}", format!("✨ Release {} complete!", new_version).green().bold());
+        println!("   {} steps executed successfully", outputs.len());
     }
 
     Ok(())
@@ -447,7 +463,7 @@ async fn cmd_rollback(config_path: &str, args: apiforge::cli::RollbackArgs) -> a
     k8s.update_deployment_image(
         &config.kubernetes.namespace,
         &config.kubernetes.deployment,
-        0,
+        &config.kubernetes.image_field,
         &target_image,
     )
     .await?;

@@ -24,7 +24,7 @@ pub struct RolloutStatus {
 
 impl K8sClient {
     pub async fn new(context: &str) -> Result<Self> {
-        let kubeconfig = Kubeconfig::read().map_err(|e| {
+        let kubeconfig = Kubeconfig::read().map_err(|_e| {
             K8sError::KubeconfigInvalid
         })?;
 
@@ -36,7 +36,7 @@ impl K8sClient {
             },
         )
         .await
-        .map_err(|e| K8sError::ContextNotFound(context.to_string()))?;
+        .map_err(|_e| K8sError::ContextNotFound(context.to_string()))?;
 
         let client = Client::try_from(config)
             .map_err(|e| K8sError::ClusterUnreachable(e.to_string()))?;
@@ -85,21 +85,26 @@ impl K8sClient {
             })
     }
 
+    /// Update the image of a specific container in a deployment
+    /// `container` can be a container name or index (e.g., "app", "0", "sidecar")
     pub async fn update_deployment_image(
         &self,
         namespace: &str,
         deployment_name: &str,
-        container_index: usize,
+        container: &str,
         new_image: &str,
     ) -> Result<()> {
         let deployments: Api<Deployment> = Api::namespaced(self.client.clone(), namespace);
+        
+        // Resolve container name (could be a name or an index)
+        let container_name = self.resolve_container_name(namespace, deployment_name, container).await?;
 
         let patch = serde_json::json!({
             "spec": {
                 "template": {
                     "spec": {
                         "containers": [{
-                            "name": self.get_container_name(namespace, deployment_name, container_index).await?,
+                            "name": container_name,
                             "image": new_image
                         }]
                     }
@@ -116,11 +121,13 @@ impl K8sClient {
         Ok(())
     }
 
-    async fn get_container_name(
+    /// Resolve a container identifier to a container name
+    /// Accepts either a container name or a numeric index
+    async fn resolve_container_name(
         &self,
         namespace: &str,
         deployment_name: &str,
-        container_index: usize,
+        container: &str,
     ) -> Result<String> {
         let deployment = self.get_deployment(namespace, deployment_name).await?;
         let containers = deployment
@@ -130,10 +137,24 @@ impl K8sClient {
             .map(|s| &s.containers)
             .ok_or_else(|| K8sError::ManifestError("No containers in deployment".to_string()))?;
 
-        containers
-            .get(container_index)
-            .map(|c| c.name.clone())
-            .ok_or_else(|| K8sError::ManifestError(format!("Container index {} not found", container_index)).into())
+        // First try to parse as index
+        if let Ok(index) = container.parse::<usize>() {
+            return containers
+                .get(index)
+                .map(|c| c.name.clone())
+                .ok_or_else(|| K8sError::ManifestError(format!("Container index {} not found", index)).into());
+        }
+
+        // Otherwise treat as container name - verify it exists
+        if containers.iter().any(|c| c.name == container) {
+            Ok(container.to_string())
+        } else {
+            Err(K8sError::ManifestError(format!(
+                "Container '{}' not found. Available containers: {}",
+                container,
+                containers.iter().map(|c| c.name.as_str()).collect::<Vec<_>>().join(", ")
+            )).into())
+        }
     }
 
     pub async fn get_rollout_status(&self, namespace: &str, deployment_name: &str) -> Result<RolloutStatus> {

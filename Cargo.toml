@@ -2,13 +2,15 @@
 name = "apiforge"
 version = "0.1.0"
 edition = "2021"
-authors = ["Apiforge Contributors"]
-description = "Production API release automation CLI"
+authors = ["Prazwal R <prazwal@example.com>"]
+description = "Production-grade API release automation CLI. From merged code to healthy pods in production — one command."
 license = "MIT"
-repository = "https://github.com/yourname/apiforge"
+repository = "https://github.com/PrazwalR/Apiforge"
+homepage = "https://github.com/PrazwalR/Apiforge"
 readme = "README.md"
 keywords = ["devops", "deployment", "kubernetes", "docker", "release"]
 categories = ["command-line-utilities", "development-tools"]
+rust-version = "1.70"
 
 [[bin]]
 name = "apiforge"

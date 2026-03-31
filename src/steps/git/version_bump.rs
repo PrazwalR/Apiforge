@@ -148,7 +148,10 @@ impl Step for VersionBumpStep {
             .strip_prefix(repo.root_path())
             .map_err(|_| ApiForgError::Config("Invalid path".to_string()))?;
 
-        repo.add(rel_path)?;
+        // Restore the original file from HEAD
+        repo.checkout_file(rel_path)?;
+        
+        tracing::info!("Restored {} to previous version", rel_path.display());
         Ok(())
     }
 }

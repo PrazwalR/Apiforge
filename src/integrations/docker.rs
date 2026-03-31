@@ -128,12 +128,20 @@ impl DockerClient {
 
         let tar_path = std::env::temp_dir().join(format!("docker_context_{}.tar", uuid::Uuid::new_v4()));
 
+        let tar_path_str = tar_path
+            .to_str()
+            .ok_or_else(|| DockerError::BuildFailed("Invalid tar path encoding".to_string()))?;
+        
+        let context_path_str = context_path
+            .to_str()
+            .ok_or_else(|| DockerError::BuildFailed("Invalid context path encoding".to_string()))?;
+
         let output = Command::new("tar")
             .args([
                 "-cf",
-                tar_path.to_str().unwrap(),
+                tar_path_str,
                 "-C",
-                context_path.to_str().unwrap_or("."),
+                context_path_str,
                 ".",
             ])
             .output()

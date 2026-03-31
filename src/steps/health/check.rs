@@ -96,7 +96,7 @@ impl Step for HealthCheckStep {
 
     async fn validate(&self, ctx: &StepContext) -> Result<()> {
         if ctx.config.health_check.is_none() {
-            return Err(ApiForgError::Config("Health check configuration missing".to_string()).into());
+            return Err(ApiForgError::Config("Health check configuration missing".to_string()));
         }
         Ok(())
     }
@@ -137,8 +137,7 @@ impl Step for HealthCheckStep {
                     "Health check failed after {} attempts over {}s",
                     attempts,
                     start.elapsed().as_secs()
-                ))
-                .into());
+                )));
             }
 
             sleep(interval).await;

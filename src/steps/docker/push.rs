@@ -66,7 +66,7 @@ impl Step for DockerPushStep {
     }
 
     async fn validate(&self, ctx: &StepContext) -> Result<()> {
-        let docker = DockerClient::new().await?;
+        let _docker = DockerClient::new().await?;
 
         // For ECR, verify we can get auth token
         if matches!(ctx.config.docker.registry, DockerRegistry::AwsEcr) {

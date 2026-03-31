@@ -104,10 +104,17 @@ impl ChangelogStep {
             "# Changelog\n\nAll notable changes to this project will be documented in this file.\n\n".to_string()
         };
 
-        let header_end = existing.find("\n\n").unwrap_or(0);
-        let (header, rest) = existing.split_at(header_end + 2);
-
-        let updated = format!("{}{}{}", header, new_content, rest);
+        // Find the end of the header section (first double newline)
+        // If not found, treat entire content as rest (new file case)
+        let updated = if let Some(header_end) = existing.find("\n\n") {
+            // Safe to split: header_end + 2 is guaranteed to be valid since we found "\n\n"
+            let (header, rest) = existing.split_at(header_end + 2);
+            format!("{}{}{}", header, new_content, rest)
+        } else {
+            // No double newline found - append to existing content
+            format!("{}\n\n{}", existing.trim_end(), new_content)
+        };
+        
         fs::write(path, updated)?;
 
         Ok(())

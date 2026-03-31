@@ -66,7 +66,7 @@ impl Step for GitHubReleaseStep {
             .config
             .github
             .as_ref()
-            .ok_or_else(|| crate::error::GitHubError::TokenInvalid)?;
+            .ok_or(crate::error::GitHubError::TokenInvalid)?;
 
         // Verify we can connect to GitHub
         let _client = GitHubClient::new(&github_config.token, &github_config.repository).await?;
@@ -79,7 +79,7 @@ impl Step for GitHubReleaseStep {
             .config
             .github
             .as_ref()
-            .ok_or_else(|| crate::error::GitHubError::TokenInvalid)?;
+            .ok_or(crate::error::GitHubError::TokenInvalid)?;
 
         let client = GitHubClient::new(&github_config.token, &github_config.repository).await?;
 
@@ -112,7 +112,7 @@ impl Step for GitHubReleaseStep {
         Ok(StepOutput::ok(format!(
             "Created GitHub release {} ({})",
             tag_name,
-            release.html_url.to_string()
+            release.html_url
         )))
     }
 
