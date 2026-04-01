@@ -1,6 +1,6 @@
 [package]
 name = "apiforge"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["Prazwal R <prazwal@example.com>"]
 description = "Production-grade API release automation CLI. From merged code to healthy pods in production — one command."
