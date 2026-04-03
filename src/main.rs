@@ -207,23 +207,112 @@ async fn cmd_release(config_path: &str, args: apiforge::cli::ReleaseArgs) -> any
     let version_file = config.project.language.version_file();
     let version_path = repo.root_path().join(version_file);
 
-    let current_version = if config.project.language == apiforge::config::Language::Rust {
-        let content = std::fs::read_to_string(&version_path)?;
-        let doc: toml::Value = toml::from_str(&content)?;
-        doc.get("package")
-            .and_then(|p| p.get("version"))
-            .and_then(|v| v.as_str())
-            .map(String::from)
-            .ok_or_else(|| anyhow::anyhow!("No version in Cargo.toml"))?
-    } else if config.project.language == apiforge::config::Language::Node {
-        let content = std::fs::read_to_string(&version_path)?;
-        let json: serde_json::Value = serde_json::from_str(&content)?;
-        json.get("version")
-            .and_then(|v| v.as_str())
-            .map(String::from)
-            .ok_or_else(|| anyhow::anyhow!("No version in package.json"))?
-    } else {
-        anyhow::bail!("Language {:?} not yet fully supported", config.project.language);
+    let current_version = match config.project.language {
+        apiforge::config::Language::Rust => {
+            let content = std::fs::read_to_string(&version_path)?;
+            let doc: toml::Value = toml::from_str(&content)?;
+            doc.get("package")
+                .and_then(|p| p.get("version"))
+                .and_then(|v| v.as_str())
+                .map(String::from)
+                .ok_or_else(|| anyhow::anyhow!("No version in Cargo.toml"))?
+        }
+        apiforge::config::Language::Node => {
+            let content = std::fs::read_to_string(&version_path)?;
+            let json: serde_json::Value = serde_json::from_str(&content)?;
+            json.get("version")
+                .and_then(|v| v.as_str())
+                .map(String::from)
+                .ok_or_else(|| anyhow::anyhow!("No version in package.json"))?
+        }
+        apiforge::config::Language::Python => {
+            let content = std::fs::read_to_string(&version_path)?;
+            let doc: toml::Value = toml::from_str(&content)?;
+            doc.get("tool")
+                .and_then(|t| t.get("poetry"))
+                .and_then(|p| p.get("version"))
+                .and_then(|v| v.as_str())
+                .or_else(|| {
+                    doc.get("project")
+                        .and_then(|p| p.get("version"))
+                        .and_then(|v| v.as_str())
+                })
+                .map(String::from)
+                .ok_or_else(|| anyhow::anyhow!("No version in pyproject.toml (expected tool.poetry.version or project.version)"))?
+        }
+        apiforge::config::Language::Go => {
+            // Try version.go first, then fallback to go.mod comment
+            let version_go_path = repo.root_path().join("version.go");
+            let mut found_version = None;
+
+            if version_go_path.exists() {
+                let content = std::fs::read_to_string(&version_go_path)?;
+                for line in content.lines() {
+                    if line.contains("Version") && line.contains('=') {
+                        if let Some(quote_start) = line.find('"') {
+                            if let Some(quote_end) = line[quote_start + 1..].find('"') {
+                                let version = &line[quote_start + 1..quote_start + 1 + quote_end];
+                                if !version.is_empty() {
+                                    found_version = Some(version.to_string());
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                if found_version.is_none() {
+                    return Err(anyhow::anyhow!("No Version constant found in version.go"));
+                }
+                found_version.unwrap()
+            } else {
+                // Try to find version in go.mod comment
+                let content = std::fs::read_to_string(&version_path)?;
+                for line in content.lines() {
+                    let trimmed = line.trim();
+                    if trimmed.starts_with("// v") || trimmed.starts_with("// ") {
+                        let potential = trimmed.trim_start_matches("// ").trim();
+                        if semver::Version::parse(potential.trim_start_matches('v')).is_ok() {
+                            found_version = Some(potential.to_string());
+                            break;
+                        }
+                    }
+                }
+                found_version.ok_or_else(|| anyhow::anyhow!("No version found in go.mod or version.go"))?
+            }
+        }
+        apiforge::config::Language::Java => {
+            let content = std::fs::read_to_string(&version_path)?;
+            let lines: Vec<&str> = content.lines().collect();
+            let mut in_project = false;
+            let mut result = None;
+
+            for line in &lines {
+                let trimmed = line.trim();
+
+                if trimmed.contains("<project") && !trimmed.contains("</project>") {
+                    in_project = true;
+                    continue;
+                }
+
+                if trimmed == "</project>" {
+                    in_project = false;
+                    continue;
+                }
+
+                if in_project && trimmed.starts_with("<version>") && trimmed.ends_with("</version>") {
+                    let start = trimmed.find("<version>").unwrap() + "<version>".len();
+                    let end = trimmed.find("</version>").unwrap();
+                    let version = &trimmed[start..end];
+
+                    if !version.starts_with("${") {
+                        result = Some(version.to_string());
+                        break;
+                    }
+                }
+            }
+
+            result.ok_or_else(|| anyhow::anyhow!("No version in pom.xml"))?
+        }
     };
 
     let new_version = apiforge::utils::bump_version(&current_version, bump_type)?;
@@ -357,13 +446,25 @@ async fn cmd_release(config_path: &str, args: apiforge::cli::ReleaseArgs) -> any
 
     // Record in audit log
     let audit_dir = std::path::Path::new(".apiforge/audit");
-    if let Ok(store) = apiforge::audit::AuditStore::open(audit_dir) {
-        let record = apiforge::audit::AuditStore::new_record(
-            &new_version_str,
-            &bump_type.to_string(),
-            args.dry_run,
-        );
-        let _ = store.record(&record);
+    {
+        // Scope ensures AuditStore is dropped and flushed before process exits
+        if let Ok(store) = apiforge::audit::AuditStore::open(audit_dir) {
+            let record = apiforge::audit::AuditStore::new_record(
+                &new_version_str,
+                &bump_type.to_string(),
+                args.dry_run,
+            );
+            if let Err(e) = store.record(&record) {
+                tracing::warn!("Failed to write audit record: {}", e);
+            }
+            // Explicit flush to ensure data is persisted
+            if let Err(e) = store.flush() {
+                tracing::warn!("Failed to flush audit database: {}", e);
+            }
+        } else {
+            tracing::warn!("Failed to open audit database at {:?}", audit_dir);
+        }
+        // AuditStore is dropped here, triggering the Drop impl
     }
 
     // Output results
@@ -494,6 +595,7 @@ async fn cmd_history(args: apiforge::cli::HistoryArgs) -> anyhow::Result<()> {
 
     let store = apiforge::audit::AuditStore::open(std::path::Path::new(".apiforge/audit"))?;
     let records = store.list(args.limit)?;
+    // store will be dropped at end of scope, triggering flush
 
     if records.is_empty() {
         println!("No release history found.");

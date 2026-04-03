@@ -71,6 +71,10 @@ impl AuditStore {
         self.db.insert(key.as_bytes(), value).map_err(|e| {
             crate::error::ApiForgError::Audit(format!("Failed to write record: {}", e))
         })?;
+        // Flush after each write to ensure data persistence
+        self.db.flush().map_err(|e| {
+            crate::error::ApiForgError::Audit(format!("Failed to flush audit DB: {}", e))
+        })?;
         Ok(())
     }
 
@@ -91,6 +95,25 @@ impl AuditStore {
         Ok(records)
     }
 
+    /// Flush the database to disk explicitly
+    pub fn flush(&self) -> crate::error::Result<()> {
+        self.db.flush().map_err(|e| {
+            crate::error::ApiForgError::Audit(format!("Failed to flush audit DB: {}", e))
+        })?;
+        Ok(())
+    }
+}
+
+impl Drop for AuditStore {
+    fn drop(&mut self) {
+        // Ensure all data is written to disk when the store is dropped
+        if let Err(e) = self.db.flush() {
+            tracing::error!("Failed to flush audit database on drop: {}", e);
+        }
+    }
+}
+
+impl AuditStore {
     pub fn new_record(version: &str, bump_type: &str, dry_run: bool) -> ReleaseRecord {
         ReleaseRecord {
             id: Uuid::new_v4().to_string(),
