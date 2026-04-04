@@ -1,19 +1,24 @@
 use crate::config::DockerRegistry;
-use crate::error::Result;
+use crate::error::{AwsError, Result};
 use crate::integrations::aws::AwsClient;
 use crate::integrations::docker::{DockerClient, PushConfig};
 use crate::steps::{Step, StepContext, StepOutput};
 use async_trait::async_trait;
 use bollard::auth::DockerCredentials;
 use semver::Version;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 pub struct DockerPushStep {
     version: Version,
+    ecr_repo_created: AtomicBool,
 }
 
 impl DockerPushStep {
     pub fn new(version: Version) -> Self {
-        Self { version }
+        Self {
+            version,
+            ecr_repo_created: AtomicBool::new(false),
+        }
     }
 
     fn get_image_tags(&self, ctx: &StepContext) -> Vec<String> {
@@ -31,16 +36,20 @@ impl DockerPushStep {
             .collect()
     }
 
+    async fn get_aws_client(ctx: &StepContext) -> Result<AwsClient> {
+        if let Some(ref profile) = ctx.config.aws.profile {
+            AwsClient::with_profile(&ctx.config.aws.region, profile).await
+        } else {
+            AwsClient::new(&ctx.config.aws.region).await
+        }
+    }
+
     async fn get_registry_info(&self, ctx: &StepContext) -> Result<(String, Option<DockerCredentials>)> {
         let repo = &ctx.config.docker.repository;
 
         match ctx.config.docker.registry {
             DockerRegistry::AwsEcr => {
-                let aws = if let Some(ref profile) = ctx.config.aws.profile {
-                    AwsClient::with_profile(&ctx.config.aws.region, profile).await?
-                } else {
-                    AwsClient::new(&ctx.config.aws.region).await?
-                };
+                let aws = Self::get_aws_client(ctx).await?;
 
                 let (account_id, _) = aws.get_caller_identity().await?;
                 let registry_url = aws.get_ecr_registry_url(&account_id);
@@ -51,6 +60,38 @@ impl DockerPushStep {
             DockerRegistry::DockerHub => Ok((repo.clone(), None)),
             DockerRegistry::Ghcr => Ok((format!("ghcr.io/{}", repo), None)),
             DockerRegistry::Custom => Ok((repo.clone(), None)),
+        }
+    }
+
+    /// Ensure ECR repository exists, creating it if necessary
+    async fn ensure_ecr_repository(
+        &self,
+        ctx: &StepContext,
+    ) -> Result<String> {
+        let repo_name = &ctx.config.docker.repository;
+        let aws = Self::get_aws_client(ctx).await?;
+
+        // Try to get existing repository
+        match aws.ensure_repository_exists(repo_name).await {
+            Ok(repo_uri) => {
+                tracing::info!("ECR repository '{}' exists", repo_name);
+                Ok(repo_uri)
+            }
+            Err(e) => {
+                // Check if it's a "not found" error
+                if let crate::error::ApiForgError::Aws(AwsError::EcrRepoNotFound(_)) = e {
+                    tracing::info!(
+                        "ECR repository '{}' not found, creating it...",
+                        repo_name
+                    );
+                    let repo_uri = aws.create_repository(repo_name).await?;
+                    self.ecr_repo_created.store(true, Ordering::SeqCst);
+                    tracing::info!("Created ECR repository: {}", repo_uri);
+                    Ok(repo_uri)
+                } else {
+                    Err(e)
+                }
+            }
         }
     }
 }
@@ -68,16 +109,15 @@ impl Step for DockerPushStep {
     async fn validate(&self, ctx: &StepContext) -> Result<()> {
         let _docker = DockerClient::new().await?;
 
-        // For ECR, verify we can get auth token
+        // For ECR, verify credentials and ensure repository exists
         if matches!(ctx.config.docker.registry, DockerRegistry::AwsEcr) {
-            let aws = if let Some(ref profile) = ctx.config.aws.profile {
-                AwsClient::with_profile(&ctx.config.aws.region, profile).await?
-            } else {
-                AwsClient::new(&ctx.config.aws.region).await?
-            };
+            let aws = Self::get_aws_client(ctx).await?;
 
             // Verify credentials work
             aws.get_caller_identity().await?;
+
+            // Note: We don't auto-create during validation, only during execute
+            // This allows dry-run to check permissions without creating resources
         }
 
         Ok(())
@@ -85,6 +125,12 @@ impl Step for DockerPushStep {
 
     async fn execute(&self, ctx: &StepContext) -> Result<StepOutput> {
         let docker = DockerClient::new().await?;
+
+        // For ECR, ensure repository exists before pushing
+        if matches!(ctx.config.docker.registry, DockerRegistry::AwsEcr) {
+            self.ensure_ecr_repository(ctx).await?;
+        }
+
         let (full_image_name, credentials) = self.get_registry_info(ctx).await?;
         let tags = self.get_image_tags(ctx);
 

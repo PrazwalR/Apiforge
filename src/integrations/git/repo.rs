@@ -332,7 +332,7 @@ impl GitRepo {
     /// Delete a tag (for rollback)
     pub fn delete_tag(&self, tag_name: &str) -> Result<()> {
         let refname = format!("refs/tags/{}", tag_name);
-        
+
         let mut reference = self
             .repo
             .find_reference(&refname)
@@ -343,6 +343,130 @@ impl GitRepo {
             .map_err(|e| GitError::GitOperation(format!("Failed to delete tag: {}", e)))?;
 
         Ok(())
+    }
+
+    /// Delete a remote tag by pushing an empty ref
+    pub fn delete_remote_tag(&self, remote: &str, tag_name: &str) -> Result<()> {
+        let mut remote = self
+            .repo
+            .find_remote(remote)
+            .map_err(|_| GitError::RemoteNotFound(remote.to_string()))?;
+
+        let mut callbacks = RemoteCallbacks::new();
+        callbacks.credentials(|_url, username_from_url, _allowed_types| {
+            Cred::ssh_key_from_agent(username_from_url.unwrap_or("git"))
+        });
+
+        let mut push_options = PushOptions::new();
+        push_options.remote_callbacks(callbacks);
+
+        // Push empty ref to delete remote tag
+        let refspec = format!(":refs/tags/{}", tag_name);
+        remote
+            .push(&[refspec], Some(&mut push_options))
+            .map_err(|e| GitError::PushFailed(format!("Failed to delete remote tag: {}", e)))?;
+
+        Ok(())
+    }
+
+    /// Get the parent commit of HEAD
+    pub fn get_parent_commit(&self) -> Result<Option<git2::Commit<'_>>> {
+        let head = self
+            .repo
+            .head()
+            .map_err(|e| GitError::GitOperation(format!("Failed to get HEAD: {}", e)))?;
+
+        let commit = head
+            .peel_to_commit()
+            .map_err(|e| GitError::GitOperation(format!("Failed to peel to commit: {}", e)))?;
+
+        // Get first parent (for merge commits, this is the mainline)
+        if commit.parent_count() > 0 {
+            Ok(Some(commit.parent(0).map_err(|e| {
+                GitError::GitOperation(format!("Failed to get parent: {}", e))
+            })?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Reset HEAD to a specific commit (soft reset - keeps changes staged)
+    pub fn reset_soft(&self,
+        commit: &git2::Commit,
+    ) -> Result<()> {
+        self.repo
+            .reset(commit.as_object(), git2::ResetType::Soft, None)
+            .map_err(|e| GitError::GitOperation(format!("Failed to reset: {}", e)))?;
+        Ok(())
+    }
+
+    /// Create a revert commit for a given commit
+    pub fn create_revert_commit(&self,
+        commit_sha: &str,
+        message: &str,
+    ) -> Result<String> {
+        let obj = self
+            .repo
+            .revparse_single(commit_sha)
+            .map_err(|e| GitError::GitOperation(format!("Failed to find commit: {}", e)))?;
+
+        let commit = obj
+            .peel_to_commit()
+            .map_err(|e| GitError::GitOperation(format!("Failed to peel to commit: {}", e)))?;
+
+        let signature = self
+            .repo
+            .signature()
+            .map_err(|e| GitError::CommitFailed(format!("Failed to get signature: {}", e)))?;
+
+        // Revert the commit
+        let mut revert_options = git2::RevertOptions::new();
+        self.repo
+            .revert(&commit, Some(&mut revert_options))
+            .map_err(|e| GitError::CommitFailed(format!("Failed to revert: {}", e)))?;
+
+        // Create the revert commit
+        let mut index = self.repo.index()
+            .map_err(|e| GitError::GitOperation(format!("Failed to get index: {}", e)))?;
+        let tree_oid = index.write_tree()
+            .map_err(|e| GitError::GitOperation(format!("Failed to write tree: {}", e)))?;
+        let tree = self.repo.find_tree(tree_oid)
+            .map_err(|e| GitError::GitOperation(format!("Failed to find tree: {}", e)))?;
+
+        let parent = self.repo.head()
+            .map_err(|e| GitError::GitOperation(format!("Failed to get HEAD: {}", e)))?
+            .peel_to_commit()
+            .map_err(|e| GitError::GitOperation(format!("Failed to peel to commit: {}", e)))?;
+        let oid = self.repo.commit(
+            Some("HEAD"),
+            &signature,
+            &signature,
+            message,
+            &tree,
+            &[&parent],
+        ).map_err(|e| GitError::CommitFailed(format!("Failed to create commit: {}", e)))?;
+
+        // Clean up the revert state
+        self.repo.cleanup_state()
+            .map_err(|e| GitError::GitOperation(format!("Failed to cleanup state: {}", e)))?;
+
+        Ok(oid.to_string())
+    }
+
+    /// Get commit message for a given sha
+    pub fn get_commit_message(&self,
+        commit_sha: &str,
+    ) -> Result<String> {
+        let obj = self
+            .repo
+            .revparse_single(commit_sha)
+            .map_err(|e| GitError::GitOperation(format!("Failed to find commit: {}", e)))?;
+
+        let commit = obj
+            .peel_to_commit()
+            .map_err(|e| GitError::GitOperation(format!("Failed to peel to commit: {}", e)))?;
+
+        Ok(commit.message().unwrap_or("").to_string())
     }
 }
 

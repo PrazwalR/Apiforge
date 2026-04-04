@@ -471,8 +471,8 @@ When you run `apiforge release patch`, the following steps execute in order:
 Step 7 (K8s Update) FAILED!
 
 ▸ Rolling back completed steps
-  ✓ git-push (rolled back)       ← Reverts pushed commits
-  ✓ git-tag (rolled back)        ← Deletes created tag
+  ✓ git-push (rolled back)       ← Deletes remote tag (preserves commit)
+  ✓ git-tag (rolled back)        ← Deletes local tag
   ✓ git-commit (rolled back)     ← Resets to previous commit
   ✓ changelog (rolled back)      ← Restores original file
   ✓ version-bump (rolled back)   ← Restores original version
@@ -481,6 +481,10 @@ Step 7 (K8s Update) FAILED!
 ```
 
 This ensures your repository and infrastructure never end up in an inconsistent state.
+
+### Auto-Created Resources
+
+**ECR Repositories**: If your ECR repository doesn't exist, Apiforge automatically creates it with scan-on-push enabled before pushing images. No manual setup required!
 
 ---
 
@@ -501,9 +505,9 @@ This ensures your repository and infrastructure never end up in an inconsistent 
 |----------|-------------|-----------|
 | Rust | `Cargo.toml` | `package.version` |
 | Node.js | `package.json` | `version` |
-| Python | `pyproject.toml` | (Coming soon) |
-| Go | `go.mod` | (Coming soon) |
-| Java | `pom.xml` | (Coming soon) |
+| Python | `pyproject.toml` | `tool.poetry.version` or `project.version` |
+| Go | `go.mod` / `version.go` | Module comment or `Version` constant |
+| Java | `pom.xml` | `project.version` |
 
 ### Kubernetes
 
