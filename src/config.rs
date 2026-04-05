@@ -291,10 +291,16 @@ impl Config {
                     "health_check.url cannot be empty".to_string(),
                 ));
             }
-            
+
             if hc.timeout == 0 {
                 return Err(crate::error::ApiForgError::Config(
                     "health_check.timeout must be greater than 0".to_string(),
+                ));
+            }
+
+            if hc.interval == 0 {
+                return Err(crate::error::ApiForgError::Config(
+                    "health_check.interval must be greater than 0".to_string(),
                 ));
             }
         }

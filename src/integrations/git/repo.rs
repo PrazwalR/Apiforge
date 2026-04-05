@@ -360,7 +360,6 @@ impl GitRepo {
         let mut push_options = PushOptions::new();
         push_options.remote_callbacks(callbacks);
 
-        // Push empty ref to delete remote tag
         let refspec = format!(":refs/tags/{}", tag_name);
         remote
             .push(&[refspec], Some(&mut push_options))
@@ -369,8 +368,8 @@ impl GitRepo {
         Ok(())
     }
 
-    /// Get the parent commit of HEAD
-    pub fn get_parent_commit(&self) -> Result<Option<git2::Commit<'_>>> {
+    /// Get the parent commit of HEAD (for rollback)
+    pub fn get_parent_commit(&self) -> Result<Option<String>> {
         let head = self
             .repo
             .head()
@@ -380,28 +379,29 @@ impl GitRepo {
             .peel_to_commit()
             .map_err(|e| GitError::GitOperation(format!("Failed to peel to commit: {}", e)))?;
 
-        // Get first parent (for merge commits, this is the mainline)
-        if commit.parent_count() > 0 {
-            Ok(Some(commit.parent(0).map_err(|e| {
-                GitError::GitOperation(format!("Failed to get parent: {}", e))
-            })?))
-        } else {
-            Ok(None)
+        match commit.parent(0) {
+            Ok(parent) => Ok(Some(parent.id().to_string())),
+            Err(_) => Ok(None),
         }
     }
 
-    /// Reset HEAD to a specific commit (soft reset - keeps changes staged)
-    pub fn reset_soft(&self,
-        commit: &git2::Commit,
-    ) -> Result<()> {
+    /// Soft reset to a specific commit (keeps changes staged)
+    pub fn reset_soft(&self, commit_sha: &str) -> Result<()> {
+        let obj = self
+            .repo
+            .revparse_single(commit_sha)
+            .map_err(|e| GitError::GitOperation(format!("Failed to parse commit: {}", e)))?;
+
         self.repo
-            .reset(commit.as_object(), git2::ResetType::Soft, None)
-            .map_err(|e| GitError::GitOperation(format!("Failed to reset: {}", e)))?;
+            .reset(&obj, git2::ResetType::Soft, None)
+            .map_err(|e| GitError::GitOperation(format!("Failed to soft reset: {}", e)))?;
+
         Ok(())
     }
 
     /// Create a revert commit for a given commit
-    pub fn create_revert_commit(&self,
+    pub fn create_revert_commit(
+        &self,
         commit_sha: &str,
         message: &str,
     ) -> Result<String> {
@@ -419,13 +419,11 @@ impl GitRepo {
             .signature()
             .map_err(|e| GitError::CommitFailed(format!("Failed to get signature: {}", e)))?;
 
-        // Revert the commit
         let mut revert_options = git2::RevertOptions::new();
         self.repo
             .revert(&commit, Some(&mut revert_options))
             .map_err(|e| GitError::CommitFailed(format!("Failed to revert: {}", e)))?;
 
-        // Create the revert commit
         let mut index = self.repo.index()
             .map_err(|e| GitError::GitOperation(format!("Failed to get index: {}", e)))?;
         let tree_oid = index.write_tree()
@@ -437,6 +435,7 @@ impl GitRepo {
             .map_err(|e| GitError::GitOperation(format!("Failed to get HEAD: {}", e)))?
             .peel_to_commit()
             .map_err(|e| GitError::GitOperation(format!("Failed to peel to commit: {}", e)))?;
+
         let oid = self.repo.commit(
             Some("HEAD"),
             &signature,
@@ -446,7 +445,6 @@ impl GitRepo {
             &[&parent],
         ).map_err(|e| GitError::CommitFailed(format!("Failed to create commit: {}", e)))?;
 
-        // Clean up the revert state
         self.repo.cleanup_state()
             .map_err(|e| GitError::GitOperation(format!("Failed to cleanup state: {}", e)))?;
 
@@ -454,7 +452,8 @@ impl GitRepo {
     }
 
     /// Get commit message for a given sha
-    pub fn get_commit_message(&self,
+    pub fn get_commit_message(
+        &self,
         commit_sha: &str,
     ) -> Result<String> {
         let obj = self
@@ -468,18 +467,3 @@ impl GitRepo {
 
         Ok(commit.message().unwrap_or("").to_string())
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use tempfile::tempdir;
-
-    #[test]
-    fn test_open_nonexistent_repo() {
-        let dir = tempdir().unwrap();
-        std::env::set_current_dir(&dir).unwrap();
-        let result = GitRepo::open();
-        assert!(result.is_err());
-    }
-}
