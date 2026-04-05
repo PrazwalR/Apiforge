@@ -65,4 +65,14 @@ impl Step for GitCommitStep {
             message
         )))
     }
+
+    async fn rollback(&self, _ctx: &StepContext) -> Result<()> {
+        let repo = GitRepo::open()?;
+        // Soft reset to parent commit, keeping changes staged
+        if let Some(parent_sha) = repo.get_parent_commit()? {
+            repo.reset_soft(&parent_sha)?;
+            tracing::info!("Rolled back commit, changes remain staged");
+        }
+        Ok(())
+    }
 }
