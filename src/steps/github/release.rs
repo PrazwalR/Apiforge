@@ -4,11 +4,14 @@ use crate::steps::{Step, StepContext, StepOutput};
 use crate::utils::format_version;
 use async_trait::async_trait;
 use semver::Version;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 pub struct GitHubReleaseStep {
     version: Version,
     previous_tag: Option<String>,
     changelog: Option<String>,
+    /// Stores the created release ID for rollback
+    created_release_id: AtomicU64,
 }
 
 impl GitHubReleaseStep {
@@ -17,6 +20,7 @@ impl GitHubReleaseStep {
             version,
             previous_tag: None,
             changelog: None,
+            created_release_id: AtomicU64::new(0),
         }
     }
 
@@ -109,6 +113,9 @@ impl Step for GitHubReleaseStep {
 
         let release = client.create_release(&config).await?;
 
+        // Store the release ID for potential rollback
+        self.created_release_id.store(release.id.into_inner(), Ordering::SeqCst);
+
         Ok(StepOutput::ok(format!(
             "Created GitHub release {} ({})",
             tag_name,
@@ -129,5 +136,59 @@ impl Step for GitHubReleaseStep {
         };
 
         Ok(StepOutput::ok(status))
+    }
+
+    /// Rollback by deleting the created GitHub release.
+    /// This is safe because:
+    /// 1. The release was just created during this pipeline run
+    /// 2. The tag still exists (if git push rollback didn't remove it)
+    /// 3. The release can be recreated on the next successful run
+    async fn rollback(&self, ctx: &StepContext) -> Result<()> {
+        let release_id = self.created_release_id.load(Ordering::SeqCst);
+        
+        // Only attempt rollback if we actually created a release
+        if release_id == 0 {
+            tracing::debug!("No GitHub release to rollback (release_id is 0)");
+            return Ok(());
+        }
+
+        let github_config = match ctx.config.github.as_ref() {
+            Some(config) => config,
+            None => {
+                tracing::warn!("Cannot rollback GitHub release: no GitHub configuration");
+                return Ok(());
+            }
+        };
+
+        let tag_name = format_version(&self.version, &ctx.config.git.tag_format);
+        tracing::info!("Rolling back GitHub release {} (ID: {})", tag_name, release_id);
+
+        match GitHubClient::new(&github_config.token, &github_config.repository).await {
+            Ok(client) => {
+                match client.delete_release(release_id).await {
+                    Ok(()) => {
+                        tracing::info!("Successfully deleted GitHub release {}", tag_name);
+                    }
+                    Err(e) => {
+                        // Log but don't fail - the release might have already been deleted
+                        // or we might not have permission to delete it
+                        tracing::warn!(
+                            "Failed to delete GitHub release {} (ID: {}): {}. \
+                             This is usually not critical - the release can be manually deleted.",
+                            tag_name, release_id, e
+                        );
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to connect to GitHub for rollback: {}. \
+                     The release {} may need to be manually deleted.",
+                    e, tag_name
+                );
+            }
+        }
+
+        Ok(())
     }
 }

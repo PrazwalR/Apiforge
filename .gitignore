@@ -1,6 +1,6 @@
 # Rust
 /target/
-/demo-test/
+/demo-api/
 Cargo.lock
 **/*.rs.bk
 *.pdb

@@ -95,15 +95,45 @@ impl Step for GitPushStep {
             }
         }
 
-        // Note: We intentionally do NOT try to revert or delete the pushed commit.
-        // Once a commit is pushed to a shared remote, deleting it is dangerous
-        // and can cause issues for other developers. Instead:
-        // 1. The version bump commit remains (it's harmless)
-        // 2. The tag is deleted, so the release isn't marked
-        // 3. A subsequent successful release will create a new tag on a new commit
+        // ROLLBACK STRATEGY DOCUMENTATION:
+        // ================================
+        // We intentionally do NOT try to revert or delete the pushed commit.
+        // 
+        // Why this is the correct approach:
+        // ---------------------------------
+        // 1. SAFETY: Once a commit is pushed to a shared remote, force-deleting it
+        //    (git push --force) is dangerous and can cause significant issues:
+        //    - Other developers may have already fetched/pulled the commit
+        //    - CI/CD pipelines may have already processed it
+        //    - It violates the principle of immutable history in shared repos
+        //
+        // 2. HARMLESSNESS: The version bump commit is essentially benign:
+        //    - It only changes version numbers in manifest files
+        //    - It doesn't affect runtime behavior
+        //    - It can coexist with subsequent releases
+        //
+        // 3. TAG DELETION IS SUFFICIENT:
+        //    - Without a tag, the commit isn't marked as a release
+        //    - No GitHub release will reference it
+        //    - No Docker images will be pushed with that version
+        //    - No Kubernetes deployments will use that version
+        //
+        // 4. RECOVERY PATH:
+        //    - The next successful release will create a new commit with the
+        //      correct version and a proper tag
+        //    - The orphaned commit becomes just another commit in history
+        //
+        // Alternative considered but rejected:
+        // ------------------------------------
+        // Creating a revert commit (git revert) was considered but rejected because:
+        // - It adds noise to the commit history
+        // - It requires another push, which could also fail
+        // - The version file would flip-flop between versions
+        // - It complicates the git history without real benefit
 
         tracing::info!(
-            "Git rollback complete. Tag deleted, commit preserved at remote."
+            "Git rollback complete. Tag deleted, commit preserved at remote. \
+             See code comments in src/steps/git/push.rs for rationale."
         );
 
         Ok(())
