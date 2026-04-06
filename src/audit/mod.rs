@@ -57,6 +57,17 @@ pub struct AuditStore {
 
 impl AuditStore {
     pub fn open(path: &std::path::Path) -> crate::error::Result<Self> {
+        // Auto-create parent directories if they don't exist
+        if let Some(parent) = path.parent() {
+            if !parent.exists() {
+                std::fs::create_dir_all(parent).map_err(|e| {
+                    crate::error::ApiForgError::Audit(format!(
+                        "Failed to create audit directory {:?}: {}", parent, e
+                    ))
+                })?;
+            }
+        }
+        
         let db = sled::open(path).map_err(|e| {
             crate::error::ApiForgError::Audit(format!("Failed to open audit DB: {}", e))
         })?;

@@ -467,3 +467,4 @@ impl GitRepo {
 
         Ok(commit.message().unwrap_or("").to_string())
     }
+}

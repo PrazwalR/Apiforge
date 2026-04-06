@@ -6,14 +6,21 @@ use crate::utils::{bump_version, BumpType};
 use async_trait::async_trait;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::RwLock;
 
 pub struct VersionBumpStep {
     bump_type: BumpType,
+    /// Stores original file content before modification for safe rollback.
+    /// Using RwLock to allow interior mutability in async context.
+    original_content: RwLock<Option<(PathBuf, String)>>,
 }
 
 impl VersionBumpStep {
     pub fn new(bump_type: BumpType) -> Self {
-        Self { bump_type }
+        Self { 
+            bump_type,
+            original_content: RwLock::new(None),
+        }
     }
 
     fn read_rust_version(path: &PathBuf) -> Result<String> {
@@ -349,6 +356,16 @@ impl Step for VersionBumpStep {
 
     async fn execute(&self, ctx: &StepContext) -> Result<StepOutput> {
         let path = self.get_version_file_path(ctx)?;
+        
+        // Store original content before modification for safe rollback
+        // This preserves any uncommitted changes that the user might have
+        let original = fs::read_to_string(&path)?;
+        {
+            let mut guard = self.original_content.write()
+                .map_err(|_| ApiForgError::StepFailed("Failed to acquire lock".to_string()))?;
+            *guard = Some((path.clone(), original));
+        }
+        
         let current = self.read_version(ctx, &path)?;
         let new_version = bump_version(&current, self.bump_type)?;
 
@@ -371,17 +388,32 @@ impl Step for VersionBumpStep {
         )))
     }
 
-    async fn rollback(&self, ctx: &StepContext) -> Result<()> {
-        let repo = GitRepo::open()?;
-        let path = self.get_version_file_path(ctx)?;
-        let rel_path = path
-            .strip_prefix(repo.root_path())
-            .map_err(|_| ApiForgError::Config("Invalid path".to_string()))?;
-
-        // Restore the original file from HEAD
-        repo.checkout_file(rel_path)?;
+    async fn rollback(&self, _ctx: &StepContext) -> Result<()> {
+        // Try to restore from our saved original content first
+        // This is safer than checkout_file because it preserves any uncommitted changes
+        // that existed before the release was started
+        let restored = {
+            let guard = self.original_content.read()
+                .map_err(|_| ApiForgError::StepFailed("Failed to acquire lock".to_string()))?;
+            
+            if let Some((ref path, ref content)) = *guard {
+                fs::write(path, content)?;
+                tracing::info!("Restored {} from saved original content", path.display());
+                true
+            } else {
+                false
+            }
+        };
         
-        tracing::info!("Restored {} to previous version", rel_path.display());
+        if !restored {
+            // Fallback: if we don't have the original content (shouldn't happen),
+            // log a warning. We can't safely restore without knowing the original state.
+            tracing::warn!(
+                "No original content saved for version file rollback. \
+                 The file may need to be manually restored if there were uncommitted changes."
+            );
+        }
+        
         Ok(())
     }
 }

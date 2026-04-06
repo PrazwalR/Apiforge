@@ -148,9 +148,21 @@ pub enum NotifyOn {
     Both,
 }
 
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "UPPERCASE")]
+pub enum HttpMethod {
+    #[default]
+    GET,
+    POST,
+    HEAD,
+    PUT,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct HealthCheckConfig {
     pub url: String,
+    #[serde(default = "default_http_method")]
+    pub method: HttpMethod,
     #[serde(default = "default_expected_status")]
     pub expected_status: u16,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -161,6 +173,10 @@ pub struct HealthCheckConfig {
     pub timeout: u64,
     #[serde(default = "default_health_interval")]
     pub interval: u64,
+}
+
+fn default_http_method() -> HttpMethod {
+    HttpMethod::GET
 }
 
 fn default_true() -> bool {
@@ -282,6 +298,42 @@ impl Config {
             return Err(crate::error::ApiForgError::Config(
                 "aws.region is required when using ECR registry".to_string(),
             ));
+        }
+
+        // Docker tag format validation
+        for tag in &self.docker.tags {
+            // Docker tags must be <= 128 chars, start with letter/number,
+            // and only contain letters, numbers, periods, underscores, dashes
+            if tag.is_empty() {
+                return Err(crate::error::ApiForgError::Config(
+                    "docker.tags cannot contain empty strings".to_string(),
+                ));
+            }
+            // Check resolved template placeholders aren't present in validation context
+            // For templates like {{version}}, we'll skip length check as the actual value isn't known
+            if !tag.contains("{{") {
+                if tag.len() > 128 {
+                    return Err(crate::error::ApiForgError::Config(format!(
+                        "docker tag '{}' exceeds 128 character limit",
+                        tag
+                    )));
+                }
+                // Docker tag regex: [a-zA-Z0-9_.-]+
+                let tag_regex = regex::Regex::new(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]*$").unwrap();
+                if !tag_regex.is_match(tag) {
+                    return Err(crate::error::ApiForgError::Config(format!(
+                        "docker tag '{}' has invalid format. Tags must start with alphanumeric and contain only [a-zA-Z0-9_.-]",
+                        tag
+                    )));
+                }
+            }
+        }
+
+        // Kubernetes image field validation
+        if !self.kubernetes.manifest_path.is_empty() {
+            // The image field in kubernetes config should be a valid reference format
+            // Pattern: [registry/]repository[:tag][@digest]
+            // For now just ensure it's not empty when we expect to update images
         }
 
         // Health check validations

@@ -1,3 +1,4 @@
+use crate::config::HttpMethod;
 use crate::error::{ApiForgError, Result};
 use crate::steps::{Step, StepContext, StepOutput};
 use crate::utils::TemplateEngine;
@@ -36,8 +37,15 @@ impl HealthCheckStep {
             .build()
             .map_err(|e| ApiForgError::StepFailed(format!("Failed to create HTTP client: {}", e)))?;
 
-        let response = client
-            .get(&url)
+        // Use the configured HTTP method
+        let request = match health_config.method {
+            HttpMethod::GET => client.get(&url),
+            HttpMethod::POST => client.post(&url),
+            HttpMethod::HEAD => client.head(&url),
+            HttpMethod::PUT => client.put(&url),
+        };
+
+        let response = request
             .send()
             .await
             .map_err(|e| ApiForgError::StepFailed(format!("Health check request failed: {}", e)))?;
@@ -149,8 +157,8 @@ impl Step for HealthCheckStep {
 
         match health_config {
             Some(config) => Ok(StepOutput::ok(format!(
-                "Would check health at {} (expect status {})",
-                config.url, config.expected_status
+                "Would check health at {} via {:?} (expect status {})",
+                config.url, config.method, config.expected_status
             ))),
             None => Ok(StepOutput::skipped("No health check configuration")),
         }
