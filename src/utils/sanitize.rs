@@ -1,8 +1,8 @@
+use once_cell::sync::Lazy;
 use regex::Regex;
-use std::sync::LazyLock;
 
 /// Patterns that may leak sensitive info in AWS error messages
-static AWS_SENSITIVE_PATTERNS: LazyLock<Vec<(Regex, &str)>> = LazyLock::new(|| {
+static AWS_SENSITIVE_PATTERNS: Lazy<Vec<(Regex, &str)>> = Lazy::new(|| {
     vec![
         // AWS account IDs (12 digits)
         (Regex::new(r"\b\d{12}\b").unwrap(), "***ACCOUNT***"),
@@ -18,7 +18,7 @@ static AWS_SENSITIVE_PATTERNS: LazyLock<Vec<(Regex, &str)>> = LazyLock::new(|| {
 });
 
 /// Patterns for token redaction in URLs and logs
-static URL_TOKEN_PATTERNS: LazyLock<Vec<(Regex, &str)>> = LazyLock::new(|| {
+static URL_TOKEN_PATTERNS: Lazy<Vec<(Regex, &str)>> = Lazy::new(|| {
     vec![
         // GitHub tokens (ghp_, gho_, ghu_, ghs_, ghr_)
         (Regex::new(r"gh[pousr]_[A-Za-z0-9_]{36,255}").unwrap(), "***GITHUB_TOKEN***"),

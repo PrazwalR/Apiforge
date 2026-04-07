@@ -1,5 +1,5 @@
 use crate::error::{K8sError, Result};
-use crate::utils::{RetryConfig, RetryableError, with_retry};
+use crate::utils::{with_retry, RetryConfig, RetryableError};
 use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::core::v1::{Namespace, Pod};
 use kube::api::{Api, ListParams, Patch, PatchParams};
@@ -15,7 +15,7 @@ struct K8sRetryableError(K8sError);
 
 impl std::fmt::Display for K8sRetryableError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
+        f.write_fmt(core::format_args!("{}", self.0))
     }
 }
 
@@ -34,9 +34,7 @@ impl RetryableError for K8sRetryableError {
             }
             // Cluster unreachable is transient
             K8sError::ClusterUnreachable(msg) => {
-                msg.contains("connection")
-                    || msg.contains("timeout")
-                    || msg.contains("refused")
+                msg.contains("connection") || msg.contains("timeout") || msg.contains("refused")
             }
             // Rollout timeout is transient in nature
             K8sError::RolloutTimeout(_) => false,
@@ -76,9 +74,7 @@ pub struct RolloutStatus {
 
 impl K8sClient {
     pub async fn new(context: &str) -> Result<Self> {
-        let kubeconfig = Kubeconfig::read().map_err(|_e| {
-            K8sError::KubeconfigInvalid
-        })?;
+        let kubeconfig = Kubeconfig::read().map_err(|_e| K8sError::KubeconfigInvalid)?;
 
         let config = Config::from_custom_kubeconfig(
             kubeconfig,
@@ -90,8 +86,9 @@ impl K8sClient {
         .await
         .map_err(|_e| K8sError::ContextNotFound(context.to_string()))?;
 
-        let client = Arc::new(Client::try_from(config)
-            .map_err(|e| K8sError::ClusterUnreachable(e.to_string()))?);
+        let client = Arc::new(
+            Client::try_from(config).map_err(|e| K8sError::ClusterUnreachable(e.to_string()))?,
+        );
 
         Ok(Self {
             client,
@@ -101,9 +98,11 @@ impl K8sClient {
     }
 
     pub async fn new_in_cluster() -> Result<Self> {
-        let client = Arc::new(Client::try_default()
-            .await
-            .map_err(|e| K8sError::ClusterUnreachable(e.to_string()))?);
+        let client = Arc::new(
+            Client::try_default()
+                .await
+                .map_err(|e| K8sError::ClusterUnreachable(e.to_string()))?,
+        );
 
         Ok(Self {
             client,
@@ -121,7 +120,7 @@ impl K8sClient {
         let client = self.client.clone();
         let namespace = namespace.to_string();
         let retry_config = self.retry_config.clone();
-        
+
         let result = with_retry(&retry_config, "K8s namespace_exists", || {
             let client = client.clone();
             let namespace = namespace.clone();
@@ -133,8 +132,9 @@ impl K8sClient {
                     Err(e) => Err(K8sRetryableError(K8sError::KubeApi(e.to_string()))),
                 }
             }
-        }).await?;
-        
+        })
+        .await?;
+
         Ok(result)
     }
 
@@ -143,25 +143,24 @@ impl K8sClient {
         let namespace = namespace.to_string();
         let name = name.to_string();
         let retry_config = self.retry_config.clone();
-        
+
         let result = with_retry(&retry_config, "K8s get_deployment", || {
             let client = client.clone();
             let namespace = namespace.clone();
             let name = name.clone();
             async move {
-                let deployments: Api<Deployment> = Api::namespaced(client.as_ref().clone(), &namespace);
-                deployments
-                    .get(&name)
-                    .await
-                    .map_err(|e| match e {
-                        kube::Error::Api(err) if err.code == 404 => {
-                            K8sRetryableError(K8sError::DeploymentNotFound(name.clone(), namespace.clone()))
-                        }
-                        _ => K8sRetryableError(K8sError::KubeApi(e.to_string())),
-                    })
+                let deployments: Api<Deployment> =
+                    Api::namespaced(client.as_ref().clone(), &namespace);
+                deployments.get(&name).await.map_err(|e| match e {
+                    kube::Error::Api(err) if err.code == 404 => K8sRetryableError(
+                        K8sError::DeploymentNotFound(name.clone(), namespace.clone()),
+                    ),
+                    _ => K8sRetryableError(K8sError::KubeApi(e.to_string())),
+                })
             }
-        }).await?;
-        
+        })
+        .await?;
+
         Ok(result)
     }
 
@@ -175,8 +174,10 @@ impl K8sClient {
         new_image: &str,
     ) -> Result<()> {
         // Resolve container name (could be a name or an index)
-        let container_name = self.resolve_container_name(namespace, deployment_name, container).await?;
-        
+        let container_name = self
+            .resolve_container_name(namespace, deployment_name, container)
+            .await?;
+
         let client = self.client.clone();
         let namespace = namespace.to_string();
         let deployment_name = deployment_name.to_string();
@@ -190,7 +191,8 @@ impl K8sClient {
             let container_name = container_name.clone();
             let new_image = new_image.clone();
             async move {
-                let deployments: Api<Deployment> = Api::namespaced(client.as_ref().clone(), &namespace);
+                let deployments: Api<Deployment> =
+                    Api::namespaced(client.as_ref().clone(), &namespace);
 
                 let patch = serde_json::json!({
                     "spec": {
@@ -209,11 +211,17 @@ impl K8sClient {
                 deployments
                     .patch(&deployment_name, &patch_params, &Patch::Strategic(patch))
                     .await
-                    .map_err(|e| K8sRetryableError(K8sError::KubeApi(format!("Failed to patch deployment: {}", e))))?;
+                    .map_err(|e| {
+                        K8sRetryableError(K8sError::KubeApi(format!(
+                            "Failed to patch deployment: {}",
+                            e
+                        )))
+                    })?;
 
                 Ok::<(), K8sRetryableError>(())
             }
-        }).await?;
+        })
+        .await?;
 
         Ok(())
     }
@@ -239,7 +247,9 @@ impl K8sClient {
             return containers
                 .get(index)
                 .map(|c| c.name.clone())
-                .ok_or_else(|| K8sError::ManifestError(format!("Container index {} not found", index)).into());
+                .ok_or_else(|| {
+                    K8sError::ManifestError(format!("Container index {} not found", index)).into()
+                });
         }
 
         // Otherwise treat as container name - verify it exists
@@ -249,12 +259,21 @@ impl K8sClient {
             Err(K8sError::ManifestError(format!(
                 "Container '{}' not found. Available containers: {}",
                 container,
-                containers.iter().map(|c| c.name.as_str()).collect::<Vec<_>>().join(", ")
-            )).into())
+                containers
+                    .iter()
+                    .map(|c| c.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ))
+            .into())
         }
     }
 
-    pub async fn get_rollout_status(&self, namespace: &str, deployment_name: &str) -> Result<RolloutStatus> {
+    pub async fn get_rollout_status(
+        &self,
+        namespace: &str,
+        deployment_name: &str,
+    ) -> Result<RolloutStatus> {
         let deployment = self.get_deployment(namespace, deployment_name).await?;
 
         let spec_replicas = deployment
@@ -269,8 +288,8 @@ impl K8sClient {
         let updated_replicas = status.and_then(|s| s.updated_replicas).unwrap_or(0);
         let available_replicas = status.and_then(|s| s.available_replicas).unwrap_or(0);
 
-        let ready = ready_replicas >= spec_replicas 
-            && updated_replicas >= spec_replicas 
+        let ready = ready_replicas >= spec_replicas
+            && updated_replicas >= spec_replicas
             && available_replicas >= spec_replicas;
 
         let message = if ready {
@@ -347,7 +366,7 @@ impl K8sClient {
         let client = self.client.clone();
         let namespace = namespace.to_string();
         let retry_config = self.retry_config.clone();
-        
+
         let result = with_retry(&retry_config, "K8s get_pods_for_deployment", || {
             let client = client.clone();
             let namespace = namespace.clone();
@@ -363,7 +382,8 @@ impl K8sClient {
 
                 Ok::<Vec<Pod>, K8sRetryableError>(pod_list.items)
             }
-        }).await?;
+        })
+        .await?;
 
         Ok(result)
     }
@@ -422,7 +442,8 @@ impl K8sClient {
             let namespace = namespace.clone();
             let deployment_name = deployment_name.clone();
             async move {
-                let deployments: Api<Deployment> = Api::namespaced(client.as_ref().clone(), &namespace);
+                let deployments: Api<Deployment> =
+                    Api::namespaced(client.as_ref().clone(), &namespace);
 
                 let patch = serde_json::json!({
                     "spec": {
@@ -434,11 +455,17 @@ impl K8sClient {
                 deployments
                     .patch(&deployment_name, &patch_params, &Patch::Strategic(patch))
                     .await
-                    .map_err(|e| K8sRetryableError(K8sError::KubeApi(format!("Failed to scale deployment: {}", e))))?;
+                    .map_err(|e| {
+                        K8sRetryableError(K8sError::KubeApi(format!(
+                            "Failed to scale deployment: {}",
+                            e
+                        )))
+                    })?;
 
                 Ok::<(), K8sRetryableError>(())
             }
-        }).await?;
+        })
+        .await?;
 
         Ok(())
     }
@@ -458,62 +485,74 @@ impl K8sClient {
     ) -> Result<()> {
         // Get the deployment to verify it exists and get current state
         let deployment = self.get_deployment(namespace, deployment_name).await?;
-        
+
         let client = self.client.clone();
         let namespace_str = namespace.to_string();
         let deployment_name_str = deployment_name.to_string();
         let retry_config = self.retry_config.clone();
-        
+
         // Get the ReplicaSets to find the revision to rollback to
         use k8s_openapi::api::apps::v1::ReplicaSet;
-        
+
         // Get selector labels from deployment
         let match_labels = deployment
             .spec
             .as_ref()
             .and_then(|s| s.selector.match_labels.clone())
             .unwrap_or_default();
-        
+
         let label_selector = match_labels
             .iter()
             .map(|(k, v)| format!("{}={}", k, v))
             .collect::<Vec<_>>()
             .join(",");
-        
+
         // Fetch and sort replicasets
         let rs_list = with_retry(&retry_config, "K8s list_replicasets", || {
             let client = client.clone();
             let namespace_str = namespace_str.clone();
             let label_selector = label_selector.clone();
             async move {
-                let replicasets: Api<ReplicaSet> = Api::namespaced(client.as_ref().clone(), &namespace_str);
+                let replicasets: Api<ReplicaSet> =
+                    Api::namespaced(client.as_ref().clone(), &namespace_str);
                 let list_params = ListParams::default().labels(&label_selector);
-                replicasets
-                    .list(&list_params)
-                    .await
-                    .map_err(|e| K8sRetryableError(K8sError::KubeApi(format!("Failed to list ReplicaSets: {}", e))))
+                replicasets.list(&list_params).await.map_err(|e| {
+                    K8sRetryableError(K8sError::KubeApi(format!(
+                        "Failed to list ReplicaSets: {}",
+                        e
+                    )))
+                })
             }
-        }).await?;
-        
+        })
+        .await?;
+
         // Sort ReplicaSets by revision annotation (descending)
         let mut replica_sets: Vec<_> = rs_list.items.into_iter().collect();
         replica_sets.sort_by(|a, b| {
-            let rev_a = a.metadata.annotations.as_ref()
+            let rev_a = a
+                .metadata
+                .annotations
+                .as_ref()
                 .and_then(|ann| ann.get("deployment.kubernetes.io/revision"))
                 .and_then(|v| v.parse::<i64>().ok())
                 .unwrap_or(0);
-            let rev_b = b.metadata.annotations.as_ref()
+            let rev_b = b
+                .metadata
+                .annotations
+                .as_ref()
                 .and_then(|ann| ann.get("deployment.kubernetes.io/revision"))
                 .and_then(|v| v.parse::<i64>().ok())
                 .unwrap_or(0);
-            rev_b.cmp(&rev_a)  // Descending order
+            rev_b.cmp(&rev_a) // Descending order
         });
-        
+
         // Find the target revision
         let target_rs = if let Some(target_rev) = revision {
             // Find specific revision
             replica_sets.iter().find(|rs| {
-                rs.metadata.annotations.as_ref()
+                rs.metadata
+                    .annotations
+                    .as_ref()
                     .and_then(|ann| ann.get("deployment.kubernetes.io/revision"))
                     .and_then(|v| v.parse::<i64>().ok())
                     == Some(target_rev)
@@ -522,18 +561,20 @@ impl K8sClient {
             // Get the second most recent revision (previous)
             replica_sets.get(1)
         };
-        
+
         let target_rs = target_rs.ok_or_else(|| {
             K8sError::RolloutFailed("No previous revision found to rollback to".to_string())
         })?;
-        
+
         // Extract the pod template spec from the target ReplicaSet
         let target_template = target_rs
             .spec
             .as_ref()
             .map(|s| s.template.clone())
-            .ok_or_else(|| K8sError::RolloutFailed("Target ReplicaSet has no template".to_string()))?;
-        
+            .ok_or_else(|| {
+                K8sError::RolloutFailed("Target ReplicaSet has no template".to_string())
+            })?;
+
         // Patch the deployment with the previous pod template
         // This mimics `kubectl rollout undo`
         let patch = serde_json::json!({
@@ -541,40 +582,58 @@ impl K8sClient {
                 "template": target_template
             }
         });
-        
+
         with_retry(&retry_config, "K8s rollback_deployment", || {
             let client = client.clone();
             let namespace_str = namespace_str.clone();
             let deployment_name_str = deployment_name_str.clone();
             let patch = patch.clone();
             async move {
-                let deployments: Api<Deployment> = Api::namespaced(client.as_ref().clone(), &namespace_str);
+                let deployments: Api<Deployment> =
+                    Api::namespaced(client.as_ref().clone(), &namespace_str);
                 let patch_params = PatchParams::apply("apiforge-rollback");
                 deployments
-                    .patch(&deployment_name_str, &patch_params, &Patch::Strategic(patch))
+                    .patch(
+                        &deployment_name_str,
+                        &patch_params,
+                        &Patch::Strategic(patch),
+                    )
                     .await
-                    .map_err(|e| K8sRetryableError(K8sError::KubeApi(format!("Failed to rollback deployment: {}", e))))?;
+                    .map_err(|e| {
+                        K8sRetryableError(K8sError::KubeApi(format!(
+                            "Failed to rollback deployment: {}",
+                            e
+                        )))
+                    })?;
                 Ok::<(), K8sRetryableError>(())
             }
-        }).await?;
-        
+        })
+        .await?;
+
         tracing::info!(
             "Rolled back deployment {} to previous revision",
             deployment_name
         );
-        
+
         Ok(())
     }
-    
+
     /// Get the current revision number of a deployment
-    pub async fn get_deployment_revision(&self, namespace: &str, deployment_name: &str) -> Result<Option<i64>> {
+    pub async fn get_deployment_revision(
+        &self,
+        namespace: &str,
+        deployment_name: &str,
+    ) -> Result<Option<i64>> {
         let deployment = self.get_deployment(namespace, deployment_name).await?;
-        
-        Ok(deployment.metadata.annotations.as_ref()
+
+        Ok(deployment
+            .metadata
+            .annotations
+            .as_ref()
             .and_then(|ann| ann.get("deployment.kubernetes.io/revision"))
             .and_then(|v| v.parse::<i64>().ok()))
     }
-    
+
     /// List available revisions for a deployment
     pub async fn list_deployment_revisions(
         &self,
@@ -582,49 +641,57 @@ impl K8sClient {
         deployment_name: &str,
     ) -> Result<Vec<i64>> {
         use k8s_openapi::api::apps::v1::ReplicaSet;
-        
+
         let deployment = self.get_deployment(namespace, deployment_name).await?;
-        
+
         let client = self.client.clone();
         let namespace = namespace.to_string();
         let retry_config = self.retry_config.clone();
-        
+
         // Get selector labels from deployment
         let match_labels = deployment
             .spec
             .as_ref()
             .and_then(|s| s.selector.match_labels.clone())
             .unwrap_or_default();
-        
+
         let label_selector = match_labels
             .iter()
             .map(|(k, v)| format!("{}={}", k, v))
             .collect::<Vec<_>>()
             .join(",");
-        
+
         let rs_list = with_retry(&retry_config, "K8s list_deployment_revisions", || {
             let client = client.clone();
             let namespace = namespace.clone();
             let label_selector = label_selector.clone();
             async move {
-                let replicasets: Api<ReplicaSet> = Api::namespaced(client.as_ref().clone(), &namespace);
+                let replicasets: Api<ReplicaSet> =
+                    Api::namespaced(client.as_ref().clone(), &namespace);
                 let list_params = ListParams::default().labels(&label_selector);
-                replicasets
-                    .list(&list_params)
-                    .await
-                    .map_err(|e| K8sRetryableError(K8sError::KubeApi(format!("Failed to list ReplicaSets: {}", e))))
+                replicasets.list(&list_params).await.map_err(|e| {
+                    K8sRetryableError(K8sError::KubeApi(format!(
+                        "Failed to list ReplicaSets: {}",
+                        e
+                    )))
+                })
             }
-        }).await?;
-        
-        let mut revisions: Vec<i64> = rs_list.items.iter()
+        })
+        .await?;
+
+        let mut revisions: Vec<i64> = rs_list
+            .items
+            .iter()
             .filter_map(|rs| {
-                rs.metadata.annotations.as_ref()
+                rs.metadata
+                    .annotations
+                    .as_ref()
                     .and_then(|ann| ann.get("deployment.kubernetes.io/revision"))
                     .and_then(|v| v.parse::<i64>().ok())
             })
             .collect();
-        
-        revisions.sort_by(|a, b| b.cmp(a));  // Descending
+
+        revisions.sort_by(|a, b| b.cmp(a)); // Descending
         Ok(revisions)
     }
 }

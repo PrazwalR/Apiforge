@@ -3,6 +3,7 @@ use crate::error::{ApiForgError, Result};
 use crate::integrations::git::GitRepo;
 use crate::steps::{Step, StepContext, StepOutput};
 use crate::utils::{bump_version, BumpType};
+use crate::utils::version::read_version;
 use async_trait::async_trait;
 use std::fs;
 use std::path::PathBuf;
@@ -23,18 +24,6 @@ impl VersionBumpStep {
         }
     }
 
-    fn read_rust_version(path: &PathBuf) -> Result<String> {
-        let content = fs::read_to_string(path)?;
-        let doc: toml::Value = toml::from_str(&content)
-            .map_err(|e| ApiForgError::Config(format!("Failed to parse Cargo.toml: {}", e)))?;
-
-        doc.get("package")
-            .and_then(|p| p.get("version"))
-            .and_then(|v| v.as_str())
-            .map(String::from)
-            .ok_or_else(|| ApiForgError::Config("No version field in Cargo.toml".to_string()))
-    }
-
     fn write_rust_version(path: &PathBuf, new_version: &str) -> Result<()> {
         let content = fs::read_to_string(path)?;
         let mut doc: toml_edit::DocumentMut = content
@@ -45,17 +34,6 @@ impl VersionBumpStep {
 
         fs::write(path, doc.to_string())?;
         Ok(())
-    }
-
-    fn read_node_version(path: &PathBuf) -> Result<String> {
-        let content = fs::read_to_string(path)?;
-        let json: serde_json::Value = serde_json::from_str(&content)
-            .map_err(|e| ApiForgError::Config(format!("Failed to parse package.json: {}", e)))?;
-
-        json.get("version")
-            .and_then(|v| v.as_str())
-            .map(String::from)
-            .ok_or_else(|| ApiForgError::Config("No version field in package.json".to_string()))
     }
 
     fn write_node_version(path: &PathBuf, new_version: &str) -> Result<()> {
@@ -70,26 +48,6 @@ impl VersionBumpStep {
         })?;
         fs::write(path, format!("{}\n", pretty))?;
         Ok(())
-    }
-
-    fn read_python_version(path: &PathBuf) -> Result<String> {
-        let content = fs::read_to_string(path)?;
-        let doc: toml::Value = toml::from_str(&content)
-            .map_err(|e| ApiForgError::Config(format!("Failed to parse pyproject.toml: {}", e)))?;
-
-        // Try poetry/tool.poetry.version first, then project.version
-        doc.get("tool")
-            .and_then(|t| t.get("poetry"))
-            .and_then(|p| p.get("version"))
-            .and_then(|v| v.as_str())
-            .map(String::from)
-            .or_else(|| {
-                doc.get("project")
-                    .and_then(|p| p.get("version"))
-                    .and_then(|v| v.as_str())
-                    .map(String::from)
-            })
-            .ok_or_else(|| ApiForgError::Config("No version field in pyproject.toml (expected tool.poetry.version or project.version)".to_string()))
     }
 
     fn write_python_version(path: &PathBuf, new_version: &str) -> Result<()> {
@@ -112,50 +70,6 @@ impl VersionBumpStep {
 
         fs::write(path, doc.to_string())?;
         Ok(())
-    }
-
-    fn read_go_version(path: &PathBuf) -> Result<String> {
-        // Go modules don't have a standard version field in go.mod
-        // We look for a version.go file or try to extract from module path
-        let content = fs::read_to_string(path)?;
-
-        // First try to find a version.go pattern (common convention)
-        let version_file = path.parent()
-            .map(|p| p.join("version.go"))
-            .filter(|p| p.exists());
-
-        if let Some(vf) = version_file {
-            let vf_content = fs::read_to_string(&vf)?;
-            // Look for Version variable definition
-            for line in vf_content.lines() {
-                if line.contains("Version") && line.contains('=') {
-                    if let Some(quote_start) = line.find('"') {
-                        if let Some(quote_end) = line[quote_start + 1..].find('"') {
-                            let version = &line[quote_start + 1..quote_start + 1 + quote_end];
-                            if !version.is_empty() {
-                                return Ok(version.to_string());
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Fallback: try to find version in module path comment
-        // go.mod files sometimes have: // v1.2.3
-        for line in content.lines() {
-            let trimmed = line.trim();
-            if trimmed.starts_with("// v") || trimmed.starts_with("// ") {
-                let potential = trimmed.trim_start_matches("// ").trim();
-                if semver::Version::parse(potential.trim_start_matches('v')).is_ok() {
-                    return Ok(potential.to_string());
-                }
-            }
-        }
-
-        Err(ApiForgError::Config(
-            "Could not find version in go.mod or version.go. Consider creating a version.go file with a Version constant.".to_string()
-        ))
     }
 
     fn write_go_version(path: &PathBuf, new_version: &str) -> Result<()> {
@@ -203,58 +117,6 @@ impl VersionBumpStep {
 
         tracing::warn!("Wrote version to go.mod comment. Consider creating a version.go file for better version management.");
         Ok(())
-    }
-
-    fn read_java_version(path: &PathBuf) -> Result<String> {
-        let content = fs::read_to_string(path)?;
-
-        // Parse pom.xml for version
-        // Look for <version>X.Y.Z</version> that's a direct child of <project>
-        // We need to be careful not to match dependency versions
-
-        // First, try to find the project version (not in dependencies/plugins)
-        let lines: Vec<&str> = content.lines().collect();
-        let mut in_project = false;
-
-        for line in &lines {
-            let trimmed = line.trim();
-
-            if trimmed.contains("<project") && !trimmed.contains("</project>") {
-                in_project = true;
-                continue;
-            }
-
-            if trimmed == "</project>" {
-                in_project = false;
-                continue;
-            }
-
-            if in_project && trimmed.starts_with("<version>") && trimmed.ends_with("</version>") {
-                // Extract version content
-                let start = trimmed.find("<version>").unwrap() + "<version>".len();
-                let end = trimmed.find("</version>").unwrap();
-                let version = &trimmed[start..end];
-
-                // Skip property references like ${version}
-                if !version.starts_with("${") {
-                    return Ok(version.to_string());
-                }
-            }
-        }
-
-        // Fallback: try to find any version tag at project level using regex-like approach
-        if let Some(start) = content.find("<version>") {
-            if let Some(end) = content[start..].find("</version>") {
-                let version = &content[start + 9..start + end];
-                if !version.starts_with("${") && !version.contains('<') {
-                    return Ok(version.to_string());
-                }
-            }
-        }
-
-        Err(ApiForgError::Config(
-            "No version field found in pom.xml".to_string()
-        ))
     }
 
     fn write_java_version(path: &PathBuf, new_version: &str) -> Result<()> {
@@ -311,16 +173,6 @@ impl VersionBumpStep {
         Ok(root.join(version_file))
     }
 
-    fn read_version(&self, ctx: &StepContext, path: &PathBuf) -> Result<String> {
-        match ctx.config.project.language {
-            Language::Rust => Self::read_rust_version(path),
-            Language::Node => Self::read_node_version(path),
-            Language::Python => Self::read_python_version(path),
-            Language::Go => Self::read_go_version(path),
-            Language::Java => Self::read_java_version(path),
-        }
-    }
-
     fn write_version(&self, ctx: &StepContext, path: &PathBuf, version: &str) -> Result<()> {
         match ctx.config.project.language {
             Language::Rust => Self::write_rust_version(path, version),
@@ -350,7 +202,7 @@ impl Step for VersionBumpStep {
                 path.display()
             )));
         }
-        self.read_version(ctx, &path)?;
+        read_version(ctx.config.project.language, &path)?;
         Ok(())
     }
 
@@ -366,7 +218,7 @@ impl Step for VersionBumpStep {
             *guard = Some((path.clone(), original));
         }
         
-        let current = self.read_version(ctx, &path)?;
+        let current = read_version(ctx.config.project.language, &path)?;
         let new_version = bump_version(&current, self.bump_type)?;
 
         self.write_version(ctx, &path, &new_version.to_string())?;
@@ -379,7 +231,7 @@ impl Step for VersionBumpStep {
 
     async fn dry_run(&self, ctx: &StepContext) -> Result<StepOutput> {
         let path = self.get_version_file_path(ctx)?;
-        let current = self.read_version(ctx, &path)?;
+        let current = read_version(ctx.config.project.language, &path)?;
         let new_version = bump_version(&current, self.bump_type)?;
 
         Ok(StepOutput::ok(format!(
@@ -421,6 +273,7 @@ impl Step for VersionBumpStep {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::utils::version::{read_python_version, read_java_version, read_go_version};
     use std::io::Write;
     use tempfile::NamedTempFile;
 
@@ -434,7 +287,7 @@ description = "Test app"
 "#;
         let mut file = NamedTempFile::new().unwrap();
         file.write_all(content.as_bytes()).unwrap();
-        let result = VersionBumpStep::read_python_version(&file.path().to_path_buf());
+        let result = read_python_version(file.path());
         assert_eq!(result.unwrap(), "1.2.3");
     }
 
@@ -448,7 +301,7 @@ description = "Test app"
 "#;
         let mut file = NamedTempFile::new().unwrap();
         file.write_all(content.as_bytes()).unwrap();
-        let result = VersionBumpStep::read_python_version(&file.path().to_path_buf());
+        let result = read_python_version(file.path());
         assert_eq!(result.unwrap(), "2.0.0");
     }
 
@@ -477,7 +330,7 @@ version = "1.0.0"
 "#;
         let mut file = NamedTempFile::new().unwrap();
         file.write_all(content.as_bytes()).unwrap();
-        let result = VersionBumpStep::read_java_version(&file.path().to_path_buf());
+        let result = read_java_version(file.path());
         assert_eq!(result.unwrap(), "3.4.5");
     }
 
@@ -505,7 +358,7 @@ go 1.21
 "#;
         let mut file = NamedTempFile::new().unwrap();
         file.write_all(content.as_bytes()).unwrap();
-        let result = VersionBumpStep::read_go_version(&file.path().to_path_buf());
+        let result = read_go_version(file.path());
         assert_eq!(result.unwrap(), "v1.2.3");
     }
 

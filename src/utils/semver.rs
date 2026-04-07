@@ -1,5 +1,6 @@
 use crate::error::{ApiForgError, Result};
 use semver::Version;
+use std::str::FromStr;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BumpType {
@@ -8,8 +9,10 @@ pub enum BumpType {
     Patch,
 }
 
-impl BumpType {
-    pub fn from_str(s: &str) -> Result<Self> {
+impl FromStr for BumpType {
+    type Err = ApiForgError;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
             "major" => Ok(BumpType::Major),
             "minor" => Ok(BumpType::Minor),
