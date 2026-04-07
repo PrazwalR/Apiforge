@@ -118,7 +118,8 @@ async fn cmd_doctor(config_path: &str) -> anyhow::Result<()> {
 
     println!("\n{}", "▸ Environment checks".bold().cyan());
 
-    let checks: Vec<(&str, fn() -> bool, &str)> = vec![
+    type ToolCheck = (&'static str, fn() -> bool, &'static str);
+    let checks: Vec<ToolCheck> = vec![
         ("git", || which::which("git").is_ok(), "Version control"),
         ("docker", || which::which("docker").is_ok(), "Container builds"),
         ("kubectl", || which::which("kubectl").is_ok(), "Kubernetes deployment"),
@@ -201,119 +202,13 @@ async fn cmd_release(config_path: &str, args: apiforge::cli::ReleaseArgs) -> any
     let path = PathBuf::from(config_path);
     let config = Config::from_file(&path)?;
 
-    let bump_type = apiforge::utils::BumpType::from_str(&args.bump)?;
+    let bump_type = args.bump.parse::<apiforge::utils::BumpType>()?;
 
     let repo = apiforge::integrations::git::GitRepo::open()?;
     let version_file = config.project.language.version_file();
     let version_path = repo.root_path().join(version_file);
 
-    let current_version = match config.project.language {
-        apiforge::config::Language::Rust => {
-            let content = std::fs::read_to_string(&version_path)?;
-            let doc: toml::Value = toml::from_str(&content)?;
-            doc.get("package")
-                .and_then(|p| p.get("version"))
-                .and_then(|v| v.as_str())
-                .map(String::from)
-                .ok_or_else(|| anyhow::anyhow!("No version in Cargo.toml"))?
-        }
-        apiforge::config::Language::Node => {
-            let content = std::fs::read_to_string(&version_path)?;
-            let json: serde_json::Value = serde_json::from_str(&content)?;
-            json.get("version")
-                .and_then(|v| v.as_str())
-                .map(String::from)
-                .ok_or_else(|| anyhow::anyhow!("No version in package.json"))?
-        }
-        apiforge::config::Language::Python => {
-            let content = std::fs::read_to_string(&version_path)?;
-            let doc: toml::Value = toml::from_str(&content)?;
-            doc.get("tool")
-                .and_then(|t| t.get("poetry"))
-                .and_then(|p| p.get("version"))
-                .and_then(|v| v.as_str())
-                .or_else(|| {
-                    doc.get("project")
-                        .and_then(|p| p.get("version"))
-                        .and_then(|v| v.as_str())
-                })
-                .map(String::from)
-                .ok_or_else(|| anyhow::anyhow!("No version in pyproject.toml (expected tool.poetry.version or project.version)"))?
-        }
-        apiforge::config::Language::Go => {
-            // Try version.go first, then fallback to go.mod comment
-            let version_go_path = repo.root_path().join("version.go");
-            let mut found_version = None;
-
-            if version_go_path.exists() {
-                let content = std::fs::read_to_string(&version_go_path)?;
-                for line in content.lines() {
-                    if line.contains("Version") && line.contains('=') {
-                        if let Some(quote_start) = line.find('"') {
-                            if let Some(quote_end) = line[quote_start + 1..].find('"') {
-                                let version = &line[quote_start + 1..quote_start + 1 + quote_end];
-                                if !version.is_empty() {
-                                    found_version = Some(version.to_string());
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                }
-                if found_version.is_none() {
-                    return Err(anyhow::anyhow!("No Version constant found in version.go"));
-                }
-                found_version.unwrap()
-            } else {
-                // Try to find version in go.mod comment
-                let content = std::fs::read_to_string(&version_path)?;
-                for line in content.lines() {
-                    let trimmed = line.trim();
-                    if trimmed.starts_with("// v") || trimmed.starts_with("// ") {
-                        let potential = trimmed.trim_start_matches("// ").trim();
-                        if semver::Version::parse(potential.trim_start_matches('v')).is_ok() {
-                            found_version = Some(potential.to_string());
-                            break;
-                        }
-                    }
-                }
-                found_version.ok_or_else(|| anyhow::anyhow!("No version found in go.mod or version.go"))?
-            }
-        }
-        apiforge::config::Language::Java => {
-            let content = std::fs::read_to_string(&version_path)?;
-            let lines: Vec<&str> = content.lines().collect();
-            let mut in_project = false;
-            let mut result = None;
-
-            for line in &lines {
-                let trimmed = line.trim();
-
-                if trimmed.contains("<project") && !trimmed.contains("</project>") {
-                    in_project = true;
-                    continue;
-                }
-
-                if trimmed == "</project>" {
-                    in_project = false;
-                    continue;
-                }
-
-                if in_project && trimmed.starts_with("<version>") && trimmed.ends_with("</version>") {
-                    let start = trimmed.find("<version>").unwrap() + "<version>".len();
-                    let end = trimmed.find("</version>").unwrap();
-                    let version = &trimmed[start..end];
-
-                    if !version.starts_with("${") {
-                        result = Some(version.to_string());
-                        break;
-                    }
-                }
-            }
-
-            result.ok_or_else(|| anyhow::anyhow!("No version in pom.xml"))?
-        }
-    };
+    let current_version = apiforge::utils::read_version(config.project.language, &version_path)?;
 
     let new_version = apiforge::utils::bump_version(&current_version, bump_type)?;
     let new_version_str = new_version.to_string();

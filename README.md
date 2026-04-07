@@ -384,6 +384,32 @@ token = "${GITHUB_TOKEN}"
 webhook_url = "${SLACK_WEBHOOK_URL}"
 ```
 
+### Template Variables
+
+Apiforge supports template variables using `{{ variable }}` syntax in various configuration fields. These are dynamically replaced at runtime.
+
+| Variable | Description | Example Value |
+|----------|-------------|---------------|
+| `{{ version }}` | Current release version | `1.2.4` |
+| `{{ project }}` | Project name from config | `my-api` |
+| `{{ previous_version }}` | Version before bump | `1.2.3` |
+| `{{ date }}` | Release date (ISO format) | `2024-01-15` |
+| `{{ timestamp }}` | Unix timestamp | `1705334400` |
+| `{{ git_sha }}` | Current commit SHA (short) | `a1b2c3d` |
+| `{{ git_sha_full }}` | Full commit SHA | `a1b2c3d4e5f6...` |
+| `{{ branch }}` | Current Git branch | `main` |
+| `{{ status_emoji }}` | Success/failure emoji | `✅` or `❌` |
+
+**Where templates are supported:**
+
+| Config Field | Example |
+|--------------|---------|
+| `git.tag_format` | `"v{{ version }}"` → `v1.2.4` |
+| `git.commit_message` | `"Release v{{ version }}"` |
+| `docker.tags` | `["{{ version }}", "latest"]` |
+| `health_check.url` | `"https://api.example.com/v{{ version }}/health"` |
+| `notifications.slack.message` | `"🚀 {{ project }} {{ version }} deployed!"` |
+
 ---
 
 ## How It Works

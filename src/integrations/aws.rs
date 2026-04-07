@@ -106,12 +106,12 @@ impl AwsClient {
 
                 let account = response
                     .account()
-                    .ok_or_else(|| AwsRetryableError(AwsError::CredentialsInvalid))?
+                    .ok_or(AwsRetryableError(AwsError::CredentialsInvalid))?
                     .to_string();
 
                 let arn = response
                     .arn()
-                    .ok_or_else(|| AwsRetryableError(AwsError::CredentialsInvalid))?
+                    .ok_or(AwsRetryableError(AwsError::CredentialsInvalid))?
                     .to_string();
 
                 Ok::<(String, String), AwsRetryableError>((account, arn))

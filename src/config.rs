@@ -23,7 +23,7 @@ pub struct ProjectConfig {
     pub language: Language,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Language {
     Rust,
@@ -301,6 +301,8 @@ impl Config {
         }
 
         // Docker tag format validation
+        // Compile regex once outside the loop
+        let tag_regex = regex::Regex::new(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]*$").unwrap();
         for tag in &self.docker.tags {
             // Docker tags must be <= 128 chars, start with letter/number,
             // and only contain letters, numbers, periods, underscores, dashes
@@ -318,8 +320,6 @@ impl Config {
                         tag
                     )));
                 }
-                // Docker tag regex: [a-zA-Z0-9_.-]+
-                let tag_regex = regex::Regex::new(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]*$").unwrap();
                 if !tag_regex.is_match(tag) {
                     return Err(crate::error::ApiForgError::Config(format!(
                         "docker tag '{}' has invalid format. Tags must start with alphanumeric and contain only [a-zA-Z0-9_.-]",

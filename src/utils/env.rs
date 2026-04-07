@@ -1,11 +1,16 @@
 use crate::error::{ApiForgError, Result};
+use once_cell::sync::Lazy;
+use regex::Regex;
 use std::env;
+
+static ENV_VAR_PATTERN: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"\$\{([A-Za-z0-9_]+)\}").unwrap()
+});
 
 pub fn resolve_env_vars(input: &str) -> Result<String> {
     let mut result = input.to_string();
-    let re = regex::Regex::new(r"\$\{([A-Za-z0-9_]+)\}").unwrap();
 
-    for cap in re.captures_iter(input) {
+    for cap in ENV_VAR_PATTERN.captures_iter(input) {
         let var_name = &cap[1];
         let value = env::var(var_name)
             .map_err(|_| ApiForgError::EnvVarMissing(var_name.to_string()))?;
@@ -31,10 +36,9 @@ pub fn resolve_config_env_vars<T: serde::de::DeserializeOwned + serde::Serialize
 }
 
 pub fn check_missing_env_vars(input: &str) -> Vec<String> {
-    let re = regex::Regex::new(r"\$\{([A-Za-z0-9_]+)\}").unwrap();
     let mut missing = Vec::new();
 
-    for cap in re.captures_iter(input) {
+    for cap in ENV_VAR_PATTERN.captures_iter(input) {
         let var_name = &cap[1];
         if env::var(var_name).is_err() {
             missing.push(var_name.to_string());
