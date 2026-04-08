@@ -38,7 +38,8 @@ impl Step for GitTagStep {
             return Err(GitError::TagFailed(format!(
                 "Tag '{}' already exists. Use a different version or delete the existing tag.",
                 tag_name
-            )).into());
+            ))
+            .into());
         }
 
         Ok(())

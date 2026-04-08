@@ -45,7 +45,11 @@ impl GitHubReleaseStep {
         if let Some(ref prev) = self.previous_tag {
             body.push_str(&format!(
                 "**Full Changelog**: https://github.com/{}/compare/{}...{}\n",
-                ctx.config.github.as_ref().map(|g| &g.repository).unwrap_or(&String::new()),
+                ctx.config
+                    .github
+                    .as_ref()
+                    .map(|g| &g.repository)
+                    .unwrap_or(&String::new()),
                 prev,
                 format_version(&self.version, &ctx.config.git.tag_format)
             ));
@@ -114,12 +118,12 @@ impl Step for GitHubReleaseStep {
         let release = client.create_release(&config).await?;
 
         // Store the release ID for potential rollback
-        self.created_release_id.store(release.id.into_inner(), Ordering::SeqCst);
+        self.created_release_id
+            .store(release.id.into_inner(), Ordering::SeqCst);
 
         Ok(StepOutput::ok(format!(
             "Created GitHub release {} ({})",
-            tag_name,
-            release.html_url
+            tag_name, release.html_url
         )))
     }
 
@@ -145,7 +149,7 @@ impl Step for GitHubReleaseStep {
     /// 3. The release can be recreated on the next successful run
     async fn rollback(&self, ctx: &StepContext) -> Result<()> {
         let release_id = self.created_release_id.load(Ordering::SeqCst);
-        
+
         // Only attempt rollback if we actually created a release
         if release_id == 0 {
             tracing::debug!("No GitHub release to rollback (release_id is 0)");
@@ -161,7 +165,11 @@ impl Step for GitHubReleaseStep {
         };
 
         let tag_name = format_version(&self.version, &ctx.config.git.tag_format);
-        tracing::info!("Rolling back GitHub release {} (ID: {})", tag_name, release_id);
+        tracing::info!(
+            "Rolling back GitHub release {} (ID: {})",
+            tag_name,
+            release_id
+        );
 
         match GitHubClient::new(&github_config.token, &github_config.repository).await {
             Ok(client) => {
@@ -175,7 +183,9 @@ impl Step for GitHubReleaseStep {
                         tracing::warn!(
                             "Failed to delete GitHub release {} (ID: {}): {}. \
                              This is usually not critical - the release can be manually deleted.",
-                            tag_name, release_id, e
+                            tag_name,
+                            release_id,
+                            e
                         );
                     }
                 }
@@ -184,7 +194,8 @@ impl Step for GitHubReleaseStep {
                 tracing::warn!(
                     "Failed to connect to GitHub for rollback: {}. \
                      The release {} may need to be manually deleted.",
-                    e, tag_name
+                    e,
+                    tag_name
                 );
             }
         }

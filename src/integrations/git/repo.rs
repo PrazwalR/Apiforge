@@ -400,11 +400,7 @@ impl GitRepo {
     }
 
     /// Create a revert commit for a given commit
-    pub fn create_revert_commit(
-        &self,
-        commit_sha: &str,
-        message: &str,
-    ) -> Result<String> {
+    pub fn create_revert_commit(&self, commit_sha: &str, message: &str) -> Result<String> {
         let obj = self
             .repo
             .revparse_single(commit_sha)
@@ -424,38 +420,46 @@ impl GitRepo {
             .revert(&commit, Some(&mut revert_options))
             .map_err(|e| GitError::CommitFailed(format!("Failed to revert: {}", e)))?;
 
-        let mut index = self.repo.index()
+        let mut index = self
+            .repo
+            .index()
             .map_err(|e| GitError::GitOperation(format!("Failed to get index: {}", e)))?;
-        let tree_oid = index.write_tree()
+        let tree_oid = index
+            .write_tree()
             .map_err(|e| GitError::GitOperation(format!("Failed to write tree: {}", e)))?;
-        let tree = self.repo.find_tree(tree_oid)
+        let tree = self
+            .repo
+            .find_tree(tree_oid)
             .map_err(|e| GitError::GitOperation(format!("Failed to find tree: {}", e)))?;
 
-        let parent = self.repo.head()
+        let parent = self
+            .repo
+            .head()
             .map_err(|e| GitError::GitOperation(format!("Failed to get HEAD: {}", e)))?
             .peel_to_commit()
             .map_err(|e| GitError::GitOperation(format!("Failed to peel to commit: {}", e)))?;
 
-        let oid = self.repo.commit(
-            Some("HEAD"),
-            &signature,
-            &signature,
-            message,
-            &tree,
-            &[&parent],
-        ).map_err(|e| GitError::CommitFailed(format!("Failed to create commit: {}", e)))?;
+        let oid = self
+            .repo
+            .commit(
+                Some("HEAD"),
+                &signature,
+                &signature,
+                message,
+                &tree,
+                &[&parent],
+            )
+            .map_err(|e| GitError::CommitFailed(format!("Failed to create commit: {}", e)))?;
 
-        self.repo.cleanup_state()
+        self.repo
+            .cleanup_state()
             .map_err(|e| GitError::GitOperation(format!("Failed to cleanup state: {}", e)))?;
 
         Ok(oid.to_string())
     }
 
     /// Get commit message for a given sha
-    pub fn get_commit_message(
-        &self,
-        commit_sha: &str,
-    ) -> Result<String> {
+    pub fn get_commit_message(&self, commit_sha: &str) -> Result<String> {
         let obj = self
             .repo
             .revparse_single(commit_sha)

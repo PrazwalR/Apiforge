@@ -7,13 +7,25 @@ static AWS_SENSITIVE_PATTERNS: Lazy<Vec<(Regex, &str)>> = Lazy::new(|| {
         // AWS account IDs (12 digits)
         (Regex::new(r"\b\d{12}\b").unwrap(), "***ACCOUNT***"),
         // AWS Access Key IDs (AKIA...)
-        (Regex::new(r"\bAKIA[A-Z0-9]{16}\b").unwrap(), "***ACCESS_KEY***"),
+        (
+            Regex::new(r"\bAKIA[A-Z0-9]{16}\b").unwrap(),
+            "***ACCESS_KEY***",
+        ),
         // AWS Secret Keys (appear in some error contexts)
-        (Regex::new(r"(?i)secret[_-]?key\s*[:=]\s*[A-Za-z0-9/+=]{40}").unwrap(), "secret_key=***REDACTED***"),
+        (
+            Regex::new(r"(?i)secret[_-]?key\s*[:=]\s*[A-Za-z0-9/+=]{40}").unwrap(),
+            "secret_key=***REDACTED***",
+        ),
         // ARNs (may contain account info)
-        (Regex::new(r"arn:aws:[a-z0-9-]+:[a-z0-9-]*:\d{12}:[^\s]+").unwrap(), "arn:aws:***:***:***ACCOUNT***:***"),
+        (
+            Regex::new(r"arn:aws:[a-z0-9-]+:[a-z0-9-]*:\d{12}:[^\s]+").unwrap(),
+            "arn:aws:***:***:***ACCOUNT***:***",
+        ),
         // Request IDs (not sensitive but reduce noise)
-        (Regex::new(r"(?i)request[_-]?id\s*[:=]\s*[a-f0-9-]{36}").unwrap(), "request_id=***"),
+        (
+            Regex::new(r"(?i)request[_-]?id\s*[:=]\s*[a-f0-9-]{36}").unwrap(),
+            "request_id=***",
+        ),
     ]
 });
 
@@ -21,14 +33,32 @@ static AWS_SENSITIVE_PATTERNS: Lazy<Vec<(Regex, &str)>> = Lazy::new(|| {
 static URL_TOKEN_PATTERNS: Lazy<Vec<(Regex, &str)>> = Lazy::new(|| {
     vec![
         // GitHub tokens (ghp_, gho_, ghu_, ghs_, ghr_)
-        (Regex::new(r"gh[pousr]_[A-Za-z0-9_]{36,255}").unwrap(), "***GITHUB_TOKEN***"),
+        (
+            Regex::new(r"gh[pousr]_[A-Za-z0-9_]{36,255}").unwrap(),
+            "***GITHUB_TOKEN***",
+        ),
         // Generic tokens in URLs
-        (Regex::new(r"(?i)[?&]token=[^&\s]+").unwrap(), "?token=***REDACTED***"),
-        (Regex::new(r"(?i)[?&]access_token=[^&\s]+").unwrap(), "?access_token=***REDACTED***"),
-        (Regex::new(r"(?i)[?&]api_key=[^&\s]+").unwrap(), "?api_key=***REDACTED***"),
+        (
+            Regex::new(r"(?i)[?&]token=[^&\s]+").unwrap(),
+            "?token=***REDACTED***",
+        ),
+        (
+            Regex::new(r"(?i)[?&]access_token=[^&\s]+").unwrap(),
+            "?access_token=***REDACTED***",
+        ),
+        (
+            Regex::new(r"(?i)[?&]api_key=[^&\s]+").unwrap(),
+            "?api_key=***REDACTED***",
+        ),
         // Authorization headers
-        (Regex::new(r"(?i)authorization:\s*bearer\s+[^\s]+").unwrap(), "Authorization: Bearer ***REDACTED***"),
-        (Regex::new(r"(?i)authorization:\s*token\s+[^\s]+").unwrap(), "Authorization: token ***REDACTED***"),
+        (
+            Regex::new(r"(?i)authorization:\s*bearer\s+[^\s]+").unwrap(),
+            "Authorization: Bearer ***REDACTED***",
+        ),
+        (
+            Regex::new(r"(?i)authorization:\s*token\s+[^\s]+").unwrap(),
+            "Authorization: token ***REDACTED***",
+        ),
         // Basic auth in URLs (user:pass@host)
         (Regex::new(r"://[^:/@]+:[^@/]+@").unwrap(), "://***:***@"),
     ]

@@ -20,7 +20,7 @@ impl ReleaseOrchestrator {
             steps: Vec::new(),
             config,
             dry_run,
-            auto_rollback: true,  // Enable by default
+            auto_rollback: true, // Enable by default
             output: OutputManager::new(),
         }
     }
@@ -58,22 +58,17 @@ impl ReleaseOrchestrator {
         for &idx in completed_indices.iter().rev() {
             let step = &self.steps[idx];
             self.output.step_status(step.name(), "rolling back...");
-            
+
             match step.rollback(ctx).await {
                 Ok(()) => {
-                    self.output.step_ok(&format!("{} (rolled back)", step.name()));
+                    self.output
+                        .step_ok(&format!("{} (rolled back)", step.name()));
                 }
                 Err(e) => {
                     // Log rollback failure but continue with other rollbacks
-                    self.output.step_fail(
-                        step.name(),
-                        &format!("rollback failed: {}", e),
-                    );
-                    tracing::error!(
-                        "Failed to rollback step '{}': {}",
-                        step.name(),
-                        e
-                    );
+                    self.output
+                        .step_fail(step.name(), &format!("rollback failed: {}", e));
+                    tracing::error!("Failed to rollback step '{}': {}", step.name(), e);
                 }
             }
         }

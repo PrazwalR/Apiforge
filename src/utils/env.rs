@@ -3,17 +3,15 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use std::env;
 
-static ENV_VAR_PATTERN: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"\$\{([A-Za-z0-9_]+)\}").unwrap()
-});
+static ENV_VAR_PATTERN: Lazy<Regex> = Lazy::new(|| Regex::new(r"\$\{([A-Za-z0-9_]+)\}").unwrap());
 
 pub fn resolve_env_vars(input: &str) -> Result<String> {
     let mut result = input.to_string();
 
     for cap in ENV_VAR_PATTERN.captures_iter(input) {
         let var_name = &cap[1];
-        let value = env::var(var_name)
-            .map_err(|_| ApiForgError::EnvVarMissing(var_name.to_string()))?;
+        let value =
+            env::var(var_name).map_err(|_| ApiForgError::EnvVarMissing(var_name.to_string()))?;
 
         result = result.replace(&format!("${{{}}}", var_name), &value);
     }
@@ -24,15 +22,13 @@ pub fn resolve_env_vars(input: &str) -> Result<String> {
 pub fn resolve_config_env_vars<T: serde::de::DeserializeOwned + serde::Serialize>(
     config: &T,
 ) -> Result<T> {
-    let json_str = serde_json::to_string(config).map_err(|e| {
-        ApiForgError::Serialization(format!("Failed to serialize config: {}", e))
-    })?;
+    let json_str = serde_json::to_string(config)
+        .map_err(|e| ApiForgError::Serialization(format!("Failed to serialize config: {}", e)))?;
 
     let resolved = resolve_env_vars(&json_str)?;
 
-    serde_json::from_str(&resolved).map_err(|e| {
-        ApiForgError::Serialization(format!("Failed to deserialize config: {}", e))
-    })
+    serde_json::from_str(&resolved)
+        .map_err(|e| ApiForgError::Serialization(format!("Failed to deserialize config: {}", e)))
 }
 
 pub fn check_missing_env_vars(input: &str) -> Vec<String> {

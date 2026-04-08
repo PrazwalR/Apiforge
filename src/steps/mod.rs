@@ -53,12 +53,12 @@ impl std::fmt::Display for StepStatus {
     }
 }
 
-pub mod git;
 pub mod docker;
-pub mod kubernetes;
+pub mod git;
 pub mod github;
-pub mod notify;
 pub mod health;
+pub mod kubernetes;
+pub mod notify;
 
 #[async_trait]
 pub trait Step: Send + Sync {

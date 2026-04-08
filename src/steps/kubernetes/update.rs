@@ -54,7 +54,10 @@ impl Step for K8sUpdateStep {
         let k8s = K8sClient::new(&ctx.config.kubernetes.context).await?;
 
         // Verify namespace exists
-        if !k8s.namespace_exists(&ctx.config.kubernetes.namespace).await? {
+        if !k8s
+            .namespace_exists(&ctx.config.kubernetes.namespace)
+            .await?
+        {
             return Err(crate::error::K8sError::NamespaceNotFound(
                 ctx.config.kubernetes.namespace.clone(),
             )
@@ -77,7 +80,7 @@ impl Step for K8sUpdateStep {
 
         // Use image_field from config (can be container name or index like "0", "app", "api")
         let container = &ctx.config.kubernetes.image_field;
-        
+
         k8s.update_deployment_image(
             &ctx.config.kubernetes.namespace,
             &ctx.config.kubernetes.deployment,
@@ -97,9 +100,7 @@ impl Step for K8sUpdateStep {
 
         Ok(StepOutput::ok(format!(
             "Would update deployment {} in {} to {}",
-            ctx.config.kubernetes.deployment,
-            ctx.config.kubernetes.namespace,
-            new_image
+            ctx.config.kubernetes.deployment, ctx.config.kubernetes.namespace, new_image
         )))
     }
 
@@ -115,7 +116,7 @@ impl Step for K8sUpdateStep {
         k8s.rollback_deployment(
             &ctx.config.kubernetes.namespace,
             &ctx.config.kubernetes.deployment,
-            None,  // Previous revision
+            None, // Previous revision
         )
         .await?;
 

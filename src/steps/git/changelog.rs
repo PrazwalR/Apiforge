@@ -114,7 +114,7 @@ impl ChangelogStep {
             // No double newline found - append to existing content
             format!("{}\n\n{}", existing.trim_end(), new_content)
         };
-        
+
         fs::write(path, updated)?;
 
         Ok(())
@@ -175,8 +175,9 @@ impl Step for ChangelogStep {
     async fn rollback(&self, _ctx: &StepContext) -> Result<()> {
         let repo = GitRepo::open()?;
         let path = self.get_changelog_path()?;
-        let rel_path = path.strip_prefix(repo.root_path())
-            .map_err(|_| crate::error::ApiForgError::Config("Invalid changelog path".to_string()))?;
+        let rel_path = path.strip_prefix(repo.root_path()).map_err(|_| {
+            crate::error::ApiForgError::Config("Invalid changelog path".to_string())
+        })?;
         repo.checkout_file(rel_path)?;
         tracing::info!("Rolled back changelog changes");
         Ok(())

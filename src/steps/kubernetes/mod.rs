@@ -1,5 +1,5 @@
-pub mod update;
 pub mod rollout;
+pub mod update;
 
-pub use update::K8sUpdateStep;
 pub use rollout::K8sRolloutStep;
+pub use update::K8sUpdateStep;

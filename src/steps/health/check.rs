@@ -18,11 +18,9 @@ impl HealthCheckStep {
     }
 
     async fn check_health(&self, ctx: &StepContext) -> Result<bool> {
-        let health_config = ctx
-            .config
-            .health_check
-            .as_ref()
-            .ok_or_else(|| ApiForgError::Config("Health check configuration missing".to_string()))?;
+        let health_config = ctx.config.health_check.as_ref().ok_or_else(|| {
+            ApiForgError::Config("Health check configuration missing".to_string())
+        })?;
 
         // Build template context for URL
         let mut template_ctx = HashMap::new();
@@ -35,7 +33,9 @@ impl HealthCheckStep {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(10))
             .build()
-            .map_err(|e| ApiForgError::StepFailed(format!("Failed to create HTTP client: {}", e)))?;
+            .map_err(|e| {
+                ApiForgError::StepFailed(format!("Failed to create HTTP client: {}", e))
+            })?;
 
         // Use the configured HTTP method
         let request = match health_config.method {
@@ -69,10 +69,7 @@ impl HealthCheckStep {
                 ApiForgError::StepFailed(format!("Failed to parse health check response: {}", e))
             })?;
 
-            let actual_value = body
-                .pointer(field)
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
+            let actual_value = body.pointer(field).and_then(|v| v.as_str()).unwrap_or("");
 
             // Support template in expected value
             let resolved_expected = engine.render(expected_value, &template_ctx)?;
@@ -104,17 +101,17 @@ impl Step for HealthCheckStep {
 
     async fn validate(&self, ctx: &StepContext) -> Result<()> {
         if ctx.config.health_check.is_none() {
-            return Err(ApiForgError::Config("Health check configuration missing".to_string()));
+            return Err(ApiForgError::Config(
+                "Health check configuration missing".to_string(),
+            ));
         }
         Ok(())
     }
 
     async fn execute(&self, ctx: &StepContext) -> Result<StepOutput> {
-        let health_config = ctx
-            .config
-            .health_check
-            .as_ref()
-            .ok_or_else(|| ApiForgError::Config("Health check configuration missing".to_string()))?;
+        let health_config = ctx.config.health_check.as_ref().ok_or_else(|| {
+            ApiForgError::Config("Health check configuration missing".to_string())
+        })?;
 
         let timeout = Duration::from_secs(health_config.timeout);
         let interval = Duration::from_secs(health_config.interval);

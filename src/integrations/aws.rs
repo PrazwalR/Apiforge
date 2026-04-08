@@ -1,8 +1,8 @@
 use crate::error::{AwsError, Result};
-use crate::utils::{RetryConfig, RetryableError, with_retry};
+use crate::utils::{with_retry, RetryConfig, RetryableError};
 use aws_config::BehaviorVersion;
-use aws_sdk_ecr::Client as EcrClient;
 use aws_sdk_ecr::error::SdkError;
+use aws_sdk_ecr::Client as EcrClient;
 use aws_sdk_sts::Client as StsClient;
 use base64::Engine;
 use bollard::auth::DockerCredentials;
@@ -94,7 +94,7 @@ impl AwsClient {
         let _ecr = self.ecr.clone();
         let sts = self.sts.clone();
         let retry_config = self.retry_config.clone();
-        
+
         let result = with_retry(&retry_config, "AWS get_caller_identity", || {
             let sts = sts.clone();
             async move {
@@ -116,15 +116,16 @@ impl AwsClient {
 
                 Ok::<(String, String), AwsRetryableError>((account, arn))
             }
-        }).await?;
-        
+        })
+        .await?;
+
         Ok(result)
     }
 
     pub async fn get_ecr_authorization(&self) -> Result<DockerCredentials> {
         let ecr = self.ecr.clone();
         let retry_config = self.retry_config.clone();
-        
+
         let result = with_retry(&retry_config, "AWS get_ecr_authorization", || {
             let ecr = ecr.clone();
             async move {
@@ -134,26 +135,36 @@ impl AwsClient {
                     .await
                     .map_err(|e| AwsRetryableError(AwsError::EcrAuthFailed(e.to_string())))?;
 
-                let auth_data = response
-                    .authorization_data()
-                    .first()
-                    .ok_or_else(|| AwsRetryableError(AwsError::EcrAuthFailed("No authorization data returned".to_string())))?;
+                let auth_data = response.authorization_data().first().ok_or_else(|| {
+                    AwsRetryableError(AwsError::EcrAuthFailed(
+                        "No authorization data returned".to_string(),
+                    ))
+                })?;
 
-                let token = auth_data
-                    .authorization_token()
-                    .ok_or_else(|| AwsRetryableError(AwsError::EcrAuthFailed("No token in response".to_string())))?;
+                let token = auth_data.authorization_token().ok_or_else(|| {
+                    AwsRetryableError(AwsError::EcrAuthFailed("No token in response".to_string()))
+                })?;
 
                 // Token is base64 encoded "username:password"
                 let decoded = base64::engine::general_purpose::STANDARD
                     .decode(token)
-                    .map_err(|e| AwsRetryableError(AwsError::EcrAuthFailed(format!("Failed to decode token: {}", e))))?;
+                    .map_err(|e| {
+                        AwsRetryableError(AwsError::EcrAuthFailed(format!(
+                            "Failed to decode token: {}",
+                            e
+                        )))
+                    })?;
 
-                let decoded_str = String::from_utf8(decoded)
-                    .map_err(|e| AwsRetryableError(AwsError::EcrAuthFailed(format!("Invalid token encoding: {}", e))))?;
+                let decoded_str = String::from_utf8(decoded).map_err(|e| {
+                    AwsRetryableError(AwsError::EcrAuthFailed(format!(
+                        "Invalid token encoding: {}",
+                        e
+                    )))
+                })?;
 
-                let (username, password) = decoded_str
-                    .split_once(':')
-                    .ok_or_else(|| AwsRetryableError(AwsError::EcrAuthFailed("Invalid token format".to_string())))?;
+                let (username, password) = decoded_str.split_once(':').ok_or_else(|| {
+                    AwsRetryableError(AwsError::EcrAuthFailed("Invalid token format".to_string()))
+                })?;
 
                 let server_address = auth_data.proxy_endpoint().map(|s| s.to_string());
 
@@ -164,8 +175,9 @@ impl AwsClient {
                     ..Default::default()
                 })
             }
-        }).await?;
-        
+        })
+        .await?;
+
         Ok(result)
     }
 
@@ -174,7 +186,7 @@ impl AwsClient {
     }
 
     /// Helper to check if an ECR error indicates the repository was not found
-    fn is_repository_not_found_error<E>(error: &SdkError<E>) -> bool 
+    fn is_repository_not_found_error<E>(error: &SdkError<E>) -> bool
     where
         E: std::fmt::Debug,
     {
@@ -199,7 +211,7 @@ impl AwsClient {
         let ecr = self.ecr.clone();
         let repo_name = repo_name.to_string();
         let retry_config = self.retry_config.clone();
-        
+
         let result = with_retry(&retry_config, "AWS ensure_repository_exists", || {
             let ecr = ecr.clone();
             let repo_name = repo_name.clone();
@@ -211,21 +223,23 @@ impl AwsClient {
                     .await
                 {
                     Ok(response) => {
-                        let repo = response
-                            .repositories()
-                            .first()
-                            .ok_or_else(|| AwsRetryableError(AwsError::EcrRepoNotFound(repo_name.clone())))?;
+                        let repo = response.repositories().first().ok_or_else(|| {
+                            AwsRetryableError(AwsError::EcrRepoNotFound(repo_name.clone()))
+                        })?;
 
-                        repo.repository_uri()
-                            .map(|s| s.to_string())
-                            .ok_or_else(|| AwsRetryableError(AwsError::SdkError(format!(
-                                "Repository '{}' exists but has no URI", repo_name
-                            ))))
+                        repo.repository_uri().map(|s| s.to_string()).ok_or_else(|| {
+                            AwsRetryableError(AwsError::SdkError(format!(
+                                "Repository '{}' exists but has no URI",
+                                repo_name
+                            )))
+                        })
                     }
                     Err(e) => {
                         // Use proper error type checking instead of string matching
                         if Self::is_repository_not_found_error(&e) {
-                            Err(AwsRetryableError(AwsError::EcrRepoNotFound(repo_name.clone())))
+                            Err(AwsRetryableError(AwsError::EcrRepoNotFound(
+                                repo_name.clone(),
+                            )))
                         } else {
                             // Check if it's a retryable error
                             Err(AwsRetryableError(AwsError::SdkError(e.to_string())))
@@ -233,8 +247,9 @@ impl AwsClient {
                     }
                 }
             }
-        }).await?;
-        
+        })
+        .await?;
+
         Ok(result)
     }
 
@@ -242,7 +257,7 @@ impl AwsClient {
         let ecr = self.ecr.clone();
         let repo_name = repo_name.to_string();
         let retry_config = self.retry_config.clone();
-        
+
         let result = with_retry(&retry_config, "AWS create_repository", || {
             let ecr = ecr.clone();
             let repo_name = repo_name.clone();
@@ -259,18 +274,20 @@ impl AwsClient {
                     .await
                     .map_err(|e| AwsRetryableError(AwsError::SdkError(e.to_string())))?;
 
-                let repo = response
-                    .repository()
-                    .ok_or_else(|| AwsRetryableError(AwsError::SdkError("No repository in response".to_string())))?;
+                let repo = response.repository().ok_or_else(|| {
+                    AwsRetryableError(AwsError::SdkError("No repository in response".to_string()))
+                })?;
 
-                repo.repository_uri()
-                    .map(|s| s.to_string())
-                    .ok_or_else(|| AwsRetryableError(AwsError::SdkError(format!(
-                        "Created repository '{}' but it has no URI", repo_name
-                    ))))
+                repo.repository_uri().map(|s| s.to_string()).ok_or_else(|| {
+                    AwsRetryableError(AwsError::SdkError(format!(
+                        "Created repository '{}' but it has no URI",
+                        repo_name
+                    )))
+                })
             }
-        }).await?;
-        
+        })
+        .await?;
+
         Ok(result)
     }
 
@@ -278,7 +295,7 @@ impl AwsClient {
         let ecr = self.ecr.clone();
         let repo_name = repo_name.to_string();
         let retry_config = self.retry_config.clone();
-        
+
         let result = with_retry(&retry_config, "AWS list_image_tags", || {
             let ecr = ecr.clone();
             let repo_name = repo_name.clone();
@@ -312,8 +329,9 @@ impl AwsClient {
 
                 Ok::<Vec<String>, AwsRetryableError>(tags)
             }
-        }).await?;
-        
+        })
+        .await?;
+
         Ok(result)
     }
 }

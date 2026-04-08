@@ -121,8 +121,16 @@ async fn cmd_doctor(config_path: &str) -> anyhow::Result<()> {
     type ToolCheck = (&'static str, fn() -> bool, &'static str);
     let checks: Vec<ToolCheck> = vec![
         ("git", || which::which("git").is_ok(), "Version control"),
-        ("docker", || which::which("docker").is_ok(), "Container builds"),
-        ("kubectl", || which::which("kubectl").is_ok(), "Kubernetes deployment"),
+        (
+            "docker",
+            || which::which("docker").is_ok(),
+            "Container builds",
+        ),
+        (
+            "kubectl",
+            || which::which("kubectl").is_ok(),
+            "Kubernetes deployment",
+        ),
         ("aws", || which::which("aws").is_ok(), "AWS CLI (ECR auth)"),
     ];
 
@@ -139,7 +147,13 @@ async fn cmd_doctor(config_path: &str) -> anyhow::Result<()> {
             "yellow" => status.yellow(),
             _ => status.normal(),
         };
-        println!("  {} {} ... {} ({})", "•".dimmed(), name.bold(), status_colored, purpose.dimmed());
+        println!(
+            "  {} {} ... {} ({})",
+            "•".dimmed(),
+            name.bold(),
+            status_colored,
+            purpose.dimmed()
+        );
     }
 
     println!("\n{}", "▸ Configuration".bold().cyan());
@@ -160,7 +174,11 @@ async fn cmd_doctor(config_path: &str) -> anyhow::Result<()> {
         }
     } else {
         all_ok = false;
-        println!("  {} config ... {} (run `apiforge init`)", "•".dimmed(), "NOT FOUND".yellow());
+        println!(
+            "  {} config ... {} (run `apiforge init`)",
+            "•".dimmed(),
+            "NOT FOUND".yellow()
+        );
     }
 
     println!("\n{}", "▸ Git repository".bold().cyan());
@@ -175,7 +193,11 @@ async fn cmd_doctor(config_path: &str) -> anyhow::Result<()> {
                 println!("    Latest tag: {}", tag);
             }
             if let Ok(clean) = repo.is_working_tree_clean() {
-                let status = if clean { "clean".green() } else { "dirty".yellow() };
+                let status = if clean {
+                    "clean".green()
+                } else {
+                    "dirty".yellow()
+                };
                 println!("    Working tree: {}", status);
             }
         }
@@ -189,7 +211,10 @@ async fn cmd_doctor(config_path: &str) -> anyhow::Result<()> {
     if all_ok {
         println!("{}", "  ✓ All checks passed!".green().bold());
     } else {
-        println!("{}", "  ⚠ Some checks failed. Fix the issues above before releasing.".yellow());
+        println!(
+            "{}",
+            "  ⚠ Some checks failed. Fix the issues above before releasing.".yellow()
+        );
     }
 
     Ok(())
@@ -218,7 +243,11 @@ async fn cmd_release(config_path: &str, args: apiforge::cli::ReleaseArgs) -> any
     // Show release plan
     println!("\n{}", "▸ Release Plan".bold().cyan());
     println!("  Project:     {}", config.project.name.bold());
-    println!("  Version:     {} → {}", current_version.dimmed(), new_version_str.green().bold());
+    println!(
+        "  Version:     {} → {}",
+        current_version.dimmed(),
+        new_version_str.green().bold()
+    );
     println!("  Bump type:   {}", args.bump);
     if let Some(ref tag) = previous_tag {
         println!("  Previous:    {}", tag.dimmed());
@@ -377,7 +406,12 @@ async fn cmd_release(config_path: &str, args: apiforge::cli::ReleaseArgs) -> any
         });
         println!("{}", serde_json::to_string_pretty(&result)?);
     } else {
-        println!("\n{}", format!("✨ Release {} complete!", new_version).green().bold());
+        println!(
+            "\n{}",
+            format!("✨ Release {} complete!", new_version)
+                .green()
+                .bold()
+        );
         println!("   {} steps executed successfully", outputs.len());
     }
 
@@ -403,7 +437,11 @@ async fn send_success_notification(
                 "text": message
             });
 
-            client.post(&slack.webhook_url).json(&payload).send().await?;
+            client
+                .post(&slack.webhook_url)
+                .json(&payload)
+                .send()
+                .await?;
         }
     }
     Ok(())
@@ -439,7 +477,8 @@ async fn cmd_rollback(config_path: &str, args: apiforge::cli::RollbackArgs) -> a
     }
 
     // Perform Kubernetes rollback
-    let k8s = apiforge::integrations::kubernetes::K8sClient::new(&config.kubernetes.context).await?;
+    let k8s =
+        apiforge::integrations::kubernetes::K8sClient::new(&config.kubernetes.context).await?;
 
     // Build the full image name with target version
     let image_base = match config.docker.registry {
@@ -479,7 +518,12 @@ async fn cmd_rollback(config_path: &str, args: apiforge::cli::RollbackArgs) -> a
     )
     .await?;
 
-    println!("\n{}", format!("✓ Rollback to {} complete!", target_version).green().bold());
+    println!(
+        "\n{}",
+        format!("✓ Rollback to {} complete!", target_version)
+            .green()
+            .bold()
+    );
 
     Ok(())
 }
@@ -578,7 +622,10 @@ async fn cmd_status(config_path: &str) -> anyhow::Result<()> {
             println!("  Context:    {}", config.kubernetes.context);
             println!("  Namespace:  {}", config.kubernetes.namespace);
 
-            match k8s.get_deployment(&config.kubernetes.namespace, &config.kubernetes.deployment).await {
+            match k8s
+                .get_deployment(&config.kubernetes.namespace, &config.kubernetes.deployment)
+                .await
+            {
                 Ok(deployment) => {
                     let image = deployment
                         .spec
@@ -588,20 +635,42 @@ async fn cmd_status(config_path: &str) -> anyhow::Result<()> {
                         .map(|c| c.image.as_deref().unwrap_or("unknown"))
                         .unwrap_or("unknown");
 
-                    println!("  Deployment: {} ({})", config.kubernetes.deployment, "running".green());
+                    println!(
+                        "  Deployment: {} ({})",
+                        config.kubernetes.deployment,
+                        "running".green()
+                    );
                     println!("  Image:      {}", image);
 
-                    if let Ok(status) = k8s.get_rollout_status(&config.kubernetes.namespace, &config.kubernetes.deployment).await {
+                    if let Ok(status) = k8s
+                        .get_rollout_status(
+                            &config.kubernetes.namespace,
+                            &config.kubernetes.deployment,
+                        )
+                        .await
+                    {
                         let ready_status = if status.ready {
-                            format!("{}/{} ready", status.ready_replicas, status.desired_replicas).green()
+                            format!(
+                                "{}/{} ready",
+                                status.ready_replicas, status.desired_replicas
+                            )
+                            .green()
                         } else {
-                            format!("{}/{} ready", status.ready_replicas, status.desired_replicas).yellow()
+                            format!(
+                                "{}/{} ready",
+                                status.ready_replicas, status.desired_replicas
+                            )
+                            .yellow()
                         };
                         println!("  Replicas:   {}", ready_status);
                     }
                 }
                 Err(_) => {
-                    println!("  Deployment: {} ({})", config.kubernetes.deployment, "not found".red());
+                    println!(
+                        "  Deployment: {} ({})",
+                        config.kubernetes.deployment,
+                        "not found".red()
+                    );
                 }
             }
         }
