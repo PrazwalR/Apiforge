@@ -30,8 +30,8 @@ pub struct PushConfig {
 
 impl DockerClient {
     pub async fn new() -> Result<Self> {
-        let docker =
-            Docker::connect_with_local_defaults().map_err(|e| DockerError::Bollard(e.to_string()))?;
+        let docker = Docker::connect_with_local_defaults()
+            .map_err(|e| DockerError::Bollard(e.to_string()))?;
 
         // Verify connection
         docker
@@ -52,11 +52,7 @@ impl DockerClient {
         Ok(version.version.unwrap_or_else(|| "unknown".to_string()))
     }
 
-    pub async fn build_image<F>(
-        &self,
-        config: &BuildConfig,
-        on_progress: F,
-    ) -> Result<String>
+    pub async fn build_image<F>(&self, config: &BuildConfig, on_progress: F) -> Result<String>
     where
         F: Fn(&str),
     {
@@ -77,7 +73,11 @@ impl DockerClient {
         // Clean up temp tar file
         let _ = tokio::fs::remove_file(&tar_path).await;
 
-        let primary_tag = config.tags.first().cloned().unwrap_or_else(|| "latest".to_string());
+        let primary_tag = config
+            .tags
+            .first()
+            .cloned()
+            .unwrap_or_else(|| "latest".to_string());
 
         let build_options = BuildImageOptions {
             dockerfile: config.dockerfile.clone(),
@@ -88,7 +88,9 @@ impl DockerClient {
             ..Default::default()
         };
 
-        let mut stream = self.docker.build_image(build_options, None, Some(tar_content.into()));
+        let mut stream = self
+            .docker
+            .build_image(build_options, None, Some(tar_content.into()));
 
         let mut image_id = String::new();
         while let Some(result) = stream.next().await {
@@ -124,38 +126,85 @@ impl DockerClient {
     }
 
     async fn create_build_context(&self, context_path: &Path) -> Result<String> {
-        use std::process::Command;
+        use std::fs::File as StdFile;
+        use std::io::BufWriter;
 
-        let tar_path = std::env::temp_dir().join(format!("docker_context_{}.tar", uuid::Uuid::new_v4()));
+        let tar_path =
+            std::env::temp_dir().join(format!("docker_context_{}.tar", uuid::Uuid::new_v4()));
 
-        let tar_path_str = tar_path
-            .to_str()
-            .ok_or_else(|| DockerError::BuildFailed("Invalid tar path encoding".to_string()))?;
-        
-        let context_path_str = context_path
-            .to_str()
-            .ok_or_else(|| DockerError::BuildFailed("Invalid context path encoding".to_string()))?;
+        // Create tar archive using Rust tar crate (cross-platform)
+        let tar_file = StdFile::create(&tar_path)
+            .map_err(|e| DockerError::BuildFailed(format!("Failed to create tar file: {}", e)))?;
+        let writer = BufWriter::new(tar_file);
+        let mut archive = tar::Builder::new(writer);
 
-        let output = Command::new("tar")
-            .args([
-                "-cf",
-                tar_path_str,
-                "-C",
-                context_path_str,
-                ".",
-            ])
-            .output()
-            .map_err(|e| DockerError::BuildFailed(format!("Failed to create tar: {}", e)))?;
+        // Recursively add all files from context directory
+        self.add_dir_to_tar(&mut archive, context_path, Path::new(""))
+            .await?;
 
-        if !output.status.success() {
-            return Err(DockerError::BuildFailed(format!(
-                "tar failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            ))
-            .into());
-        }
+        archive
+            .finish()
+            .map_err(|e| DockerError::BuildFailed(format!("Failed to finalize tar: {}", e)))?;
 
         Ok(tar_path.to_string_lossy().to_string())
+    }
+
+    /// Recursively adds directory contents to tar archive
+    async fn add_dir_to_tar<W: std::io::Write>(
+        &self,
+        archive: &mut tar::Builder<W>,
+        base_path: &Path,
+        relative_path: &Path,
+    ) -> Result<()> {
+        let full_path = base_path.join(relative_path);
+
+        let entries = std::fs::read_dir(&full_path).map_err(|e| {
+            DockerError::BuildFailed(format!("Failed to read directory {:?}: {}", full_path, e))
+        })?;
+
+        for entry in entries {
+            let entry = entry.map_err(|e| {
+                DockerError::BuildFailed(format!("Failed to read entry: {}", e))
+            })?;
+
+            let file_name = entry.file_name();
+            let entry_relative = relative_path.join(&file_name);
+            let entry_path = entry.path();
+
+            // Skip hidden files and common ignore patterns
+            let name_str = file_name.to_string_lossy();
+            if name_str.starts_with('.') && name_str != ".dockerignore" {
+                continue;
+            }
+            if name_str == "target" || name_str == "node_modules" {
+                continue;
+            }
+
+            let metadata = entry.metadata().map_err(|e| {
+                DockerError::BuildFailed(format!("Failed to get metadata for {:?}: {}", entry_path, e))
+            })?;
+
+            if metadata.is_dir() {
+                // Recursively add directory
+                Box::pin(self.add_dir_to_tar(archive, base_path, &entry_relative)).await?;
+            } else if metadata.is_file() {
+                // Add file to archive
+                let mut file = std::fs::File::open(&entry_path).map_err(|e| {
+                    DockerError::BuildFailed(format!("Failed to open file {:?}: {}", entry_path, e))
+                })?;
+
+                archive
+                    .append_file(entry_relative, &mut file)
+                    .map_err(|e| {
+                        DockerError::BuildFailed(format!(
+                            "Failed to add file {:?} to tar: {}",
+                            entry_path, e
+                        ))
+                    })?;
+            }
+        }
+
+        Ok(())
     }
 
     pub async fn tag_image(&self, source: &str, target: &str) -> Result<()> {
@@ -171,11 +220,7 @@ impl DockerClient {
         Ok(())
     }
 
-    pub async fn push_image<F>(
-        &self,
-        config: &PushConfig,
-        on_progress: F,
-    ) -> Result<()>
+    pub async fn push_image<F>(&self, config: &PushConfig, on_progress: F) -> Result<()>
     where
         F: Fn(&str),
     {
@@ -191,9 +236,9 @@ impl DockerClient {
             tag: config.tag.clone(),
         };
 
-        let mut stream = self
-            .docker
-            .push_image(&image_name, Some(options), config.credentials.clone());
+        let mut stream =
+            self.docker
+                .push_image(&image_name, Some(options), config.credentials.clone());
 
         while let Some(result) = stream.next().await {
             match result {

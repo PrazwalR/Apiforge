@@ -17,7 +17,7 @@ impl DockerBuildStep {
 
     fn get_image_tags(&self, ctx: &StepContext) -> Vec<String> {
         let version_str = self.version.to_string();
-        
+
         ctx.config
             .docker
             .tags
@@ -68,8 +68,8 @@ impl Step for DockerBuildStep {
         docker.version().await?;
 
         // Check Dockerfile exists
-        let dockerfile_path = std::path::Path::new(&ctx.config.docker.context)
-            .join(&ctx.config.docker.dockerfile);
+        let dockerfile_path =
+            std::path::Path::new(&ctx.config.docker.context).join(&ctx.config.docker.dockerfile);
 
         if !dockerfile_path.exists() {
             return Err(crate::error::DockerError::BuildFailed(format!(
@@ -85,19 +85,14 @@ impl Step for DockerBuildStep {
     async fn execute(&self, ctx: &StepContext) -> Result<StepOutput> {
         let docker = DockerClient::new().await?;
         let full_image_name = self.get_full_image_name(ctx).await?;
-        
+
         let tags: Vec<String> = self
             .get_image_tags(ctx)
             .iter()
             .map(|t| format!("{}:{}", full_image_name, t))
             .collect();
 
-        let build_args = ctx
-            .config
-            .docker
-            .build_args
-            .clone()
-            .unwrap_or_default();
+        let build_args = ctx.config.docker.build_args.clone().unwrap_or_default();
 
         let config = BuildConfig {
             dockerfile: ctx.config.docker.dockerfile.clone(),

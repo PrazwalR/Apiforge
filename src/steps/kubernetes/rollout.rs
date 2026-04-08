@@ -49,7 +49,9 @@ impl Step for K8sRolloutStep {
 
     async fn execute(&self, ctx: &StepContext) -> Result<StepOutput> {
         let k8s = K8sClient::new(&ctx.config.kubernetes.context).await?;
-        let timeout = self.timeout.unwrap_or(ctx.config.kubernetes.rollout_timeout);
+        let timeout = self
+            .timeout
+            .unwrap_or(ctx.config.kubernetes.rollout_timeout);
 
         let status = k8s
             .wait_for_rollout(
@@ -85,7 +87,9 @@ impl Step for K8sRolloutStep {
     }
 
     async fn dry_run(&self, ctx: &StepContext) -> Result<StepOutput> {
-        let timeout = self.timeout.unwrap_or(ctx.config.kubernetes.rollout_timeout);
+        let timeout = self
+            .timeout
+            .unwrap_or(ctx.config.kubernetes.rollout_timeout);
 
         Ok(StepOutput::ok(format!(
             "Would wait for rollout of {} with {}s timeout",
@@ -105,7 +109,7 @@ impl Step for K8sRolloutStep {
         k8s.rollback_deployment(
             &ctx.config.kubernetes.namespace,
             &ctx.config.kubernetes.deployment,
-            None,  // Roll back to previous revision
+            None, // Roll back to previous revision
         )
         .await?;
 

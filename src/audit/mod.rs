@@ -62,12 +62,13 @@ impl AuditStore {
             if !parent.exists() {
                 std::fs::create_dir_all(parent).map_err(|e| {
                     crate::error::ApiForgError::Audit(format!(
-                        "Failed to create audit directory {:?}: {}", parent, e
+                        "Failed to create audit directory {:?}: {}",
+                        parent, e
                     ))
                 })?;
             }
         }
-        
+
         let db = sled::open(path).map_err(|e| {
             crate::error::ApiForgError::Audit(format!("Failed to open audit DB: {}", e))
         })?;

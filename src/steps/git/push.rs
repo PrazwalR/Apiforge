@@ -32,9 +32,7 @@ impl Step for GitPushStep {
     async fn validate(&self, ctx: &StepContext) -> Result<()> {
         let repo = GitRepo::open()?;
         if !repo.remote_exists(&ctx.config.git.remote) {
-            return Err(
-                GitError::RemoteNotFound(ctx.config.git.remote.clone()).into(),
-            );
+            return Err(GitError::RemoteNotFound(ctx.config.git.remote.clone()).into());
         }
         Ok(())
     }
@@ -98,7 +96,7 @@ impl Step for GitPushStep {
         // ROLLBACK STRATEGY DOCUMENTATION:
         // ================================
         // We intentionally do NOT try to revert or delete the pushed commit.
-        // 
+        //
         // Why this is the correct approach:
         // ---------------------------------
         // 1. SAFETY: Once a commit is pushed to a shared remote, force-deleting it

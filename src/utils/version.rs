@@ -69,7 +69,8 @@ pub fn read_python_version(path: &Path) -> Result<String> {
 /// Checks for version.go first, then falls back to go.mod comments.
 pub fn read_go_version(path: &Path) -> Result<String> {
     // First try to find a version.go pattern (common convention)
-    let version_file = path.parent()
+    let version_file = path
+        .parent()
         .map(|p| p.join("version.go"))
         .filter(|p| p.exists());
 
@@ -154,9 +155,13 @@ mod tests {
     #[test]
     fn test_read_rust_version() {
         let mut file = NamedTempFile::new().unwrap();
-        writeln!(file, r#"[package]
+        writeln!(
+            file,
+            r#"[package]
 name = "test"
-version = "1.2.3""#).unwrap();
+version = "1.2.3""#
+        )
+        .unwrap();
 
         let result = read_rust_version(file.path()).unwrap();
         assert_eq!(result, "1.2.3");
@@ -174,9 +179,13 @@ version = "1.2.3""#).unwrap();
     #[test]
     fn test_read_python_version_poetry() {
         let mut file = NamedTempFile::new().unwrap();
-        writeln!(file, r#"[tool.poetry]
+        writeln!(
+            file,
+            r#"[tool.poetry]
 name = "test"
-version = "3.4.5""#).unwrap();
+version = "3.4.5""#
+        )
+        .unwrap();
 
         let result = read_python_version(file.path()).unwrap();
         assert_eq!(result, "3.4.5");
@@ -185,9 +194,13 @@ version = "3.4.5""#).unwrap();
     #[test]
     fn test_read_python_version_pep621() {
         let mut file = NamedTempFile::new().unwrap();
-        writeln!(file, r#"[project]
+        writeln!(
+            file,
+            r#"[project]
 name = "test"
-version = "4.5.6""#).unwrap();
+version = "4.5.6""#
+        )
+        .unwrap();
 
         let result = read_python_version(file.path()).unwrap();
         assert_eq!(result, "4.5.6");
@@ -196,12 +209,16 @@ version = "4.5.6""#).unwrap();
     #[test]
     fn test_read_java_version() {
         let mut file = NamedTempFile::new().unwrap();
-        writeln!(file, r#"<?xml version="1.0"?>
+        writeln!(
+            file,
+            r#"<?xml version="1.0"?>
 <project>
     <groupId>com.example</groupId>
     <artifactId>test</artifactId>
     <version>5.6.7</version>
-</project>"#).unwrap();
+</project>"#
+        )
+        .unwrap();
 
         let result = read_java_version(file.path()).unwrap();
         assert_eq!(result, "5.6.7");

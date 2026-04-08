@@ -72,11 +72,11 @@ impl RetryConfig {
 
     /// Calculate delay for a given attempt number (0-indexed)
     fn calculate_delay(&self, attempt: u32) -> Duration {
-        let base_delay = self.initial_delay.as_millis() as f64 
-            * self.backoff_multiplier.powi(attempt as i32);
-        
+        let base_delay =
+            self.initial_delay.as_millis() as f64 * self.backoff_multiplier.powi(attempt as i32);
+
         let delay_ms = base_delay.min(self.max_delay.as_millis() as f64);
-        
+
         let final_delay_ms = if self.add_jitter {
             // Add up to 25% jitter
             let jitter = delay_ms * 0.25 * rand_jitter();
@@ -84,7 +84,7 @@ impl RetryConfig {
         } else {
             delay_ms
         };
-        
+
         Duration::from_millis(final_delay_ms as u64)
     }
 }
@@ -106,12 +106,12 @@ pub trait RetryableError {
 }
 
 /// Execute an async operation with retry logic
-/// 
+///
 /// # Arguments
 /// * `config` - Retry configuration
 /// * `operation_name` - Name of the operation for logging
 /// * `operation` - Async closure that returns Result<T, E> where E: RetryableError
-/// 
+///
 /// # Returns
 /// * Ok(T) - If the operation succeeds within the retry limit
 /// * Err(E) - The last error if all retries are exhausted
@@ -126,7 +126,7 @@ where
     E: RetryableError + std::fmt::Display,
 {
     let mut last_error: Option<E> = None;
-    
+
     for attempt in 0..=config.max_retries {
         match operation().await {
             Ok(result) => {
@@ -152,7 +152,7 @@ where
                     }
                     return Err(e);
                 }
-                
+
                 let delay = config.calculate_delay(attempt);
                 warn!(
                     "{} failed (attempt {}/{}): {}. Retrying in {:?}...",
@@ -162,22 +162,19 @@ where
                     e,
                     delay
                 );
-                
+
                 last_error = Some(e);
                 sleep(delay).await;
             }
         }
     }
-    
+
     // This should be unreachable, but just in case
     Err(last_error.expect("Retry loop should have set last_error"))
 }
 
 /// Execute an async operation with default retry config
-pub async fn retry<F, Fut, T, E>(
-    operation_name: &str,
-    operation: F,
-) -> Result<T, E>
+pub async fn retry<F, Fut, T, E>(operation_name: &str, operation: F) -> Result<T, E>
 where
     F: FnMut() -> Fut,
     Fut: Future<Output = Result<T, E>>,
@@ -221,8 +218,7 @@ mod tests {
         let attempts = Arc::new(AtomicU32::new(0));
         let attempts_clone = attempts.clone();
 
-        let config = RetryConfig::default()
-            .with_initial_delay(Duration::from_millis(10));
+        let config = RetryConfig::default().with_initial_delay(Duration::from_millis(10));
 
         let result = with_retry(&config, "test", || {
             let attempts = attempts_clone.clone();
@@ -249,8 +245,7 @@ mod tests {
         let attempts = Arc::new(AtomicU32::new(0));
         let attempts_clone = attempts.clone();
 
-        let config = RetryConfig::default()
-            .with_initial_delay(Duration::from_millis(10));
+        let config = RetryConfig::default().with_initial_delay(Duration::from_millis(10));
 
         let result: Result<&str, TestError> = with_retry(&config, "test", || {
             let attempts = attempts_clone.clone();

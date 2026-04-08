@@ -1,5 +1,5 @@
 use crate::error::{GitHubError, Result};
-use crate::utils::{RetryConfig, RetryableError, with_retry};
+use crate::utils::{with_retry, RetryConfig, RetryableError};
 use octocrab::models::repos::Release;
 use octocrab::Octocrab;
 use std::sync::Arc;
@@ -68,10 +68,12 @@ pub struct ReleaseConfig {
 
 impl GitHubClient {
     pub async fn new(token: &str, repository: &str) -> Result<Self> {
-        let octocrab = Arc::new(Octocrab::builder()
-            .personal_token(token.to_string())
-            .build()
-            .map_err(|_e| GitHubError::TokenInvalid)?);
+        let octocrab = Arc::new(
+            Octocrab::builder()
+                .personal_token(token.to_string())
+                .build()
+                .map_err(|_e| GitHubError::TokenInvalid)?,
+        );
 
         let (owner, repo) = parse_repository(repository)?;
         let retry_config = RetryConfig::default();
@@ -81,30 +83,27 @@ impl GitHubClient {
         let owner_clone = owner.clone();
         let repo_clone = repo.clone();
         let repository = repository.to_string();
-        
+
         with_retry(&retry_config, "GitHub verify repository access", || {
             let octocrab = octocrab_clone.clone();
             let owner = owner_clone.clone();
             let repo = repo_clone.clone();
             let repository = repository.clone();
             async move {
-                octocrab
-                    .repos(&owner, &repo)
-                    .get()
-                    .await
-                    .map_err(|e| {
-                        let err = if e.to_string().contains("404") {
-                            GitHubError::RepoNotFound(repository)
-                        } else if e.to_string().contains("401") || e.to_string().contains("403") {
-                            GitHubError::TokenInvalid
-                        } else {
-                            GitHubError::ApiError(e.to_string())
-                        };
-                        GitHubRetryableError(err)
-                    })?;
+                octocrab.repos(&owner, &repo).get().await.map_err(|e| {
+                    let err = if e.to_string().contains("404") {
+                        GitHubError::RepoNotFound(repository)
+                    } else if e.to_string().contains("401") || e.to_string().contains("403") {
+                        GitHubError::TokenInvalid
+                    } else {
+                        GitHubError::ApiError(e.to_string())
+                    };
+                    GitHubRetryableError(err)
+                })?;
                 Ok::<(), GitHubRetryableError>(())
             }
-        }).await?;
+        })
+        .await?;
 
         Ok(Self {
             octocrab,
@@ -120,7 +119,7 @@ impl GitHubClient {
         let repo = self.repo.clone();
         let config = config.clone();
         let retry_config = self.retry_config.clone();
-        
+
         let result = with_retry(&retry_config, "GitHub create release", || {
             let octocrab = octocrab.clone();
             let owner = owner.clone();
@@ -141,7 +140,8 @@ impl GitHubClient {
 
                 Ok::<Release, GitHubRetryableError>(release)
             }
-        }).await?;
+        })
+        .await?;
 
         Ok(result)
     }
@@ -152,7 +152,7 @@ impl GitHubClient {
         let repo = self.repo.clone();
         let tag = tag.to_string();
         let retry_config = self.retry_config.clone();
-        
+
         let result = with_retry(&retry_config, "GitHub get release by tag", || {
             let octocrab = octocrab.clone();
             let owner = owner.clone();
@@ -170,7 +170,8 @@ impl GitHubClient {
                     Err(e) => Err(GitHubRetryableError(GitHubError::ApiError(e.to_string()))),
                 }
             }
-        }).await?;
+        })
+        .await?;
 
         Ok(result)
     }
@@ -180,24 +181,20 @@ impl GitHubClient {
         let owner = self.owner.clone();
         let repo = self.repo.clone();
         let retry_config = self.retry_config.clone();
-        
+
         let result = with_retry(&retry_config, "GitHub get latest release", || {
             let octocrab = octocrab.clone();
             let owner = owner.clone();
             let repo = repo.clone();
             async move {
-                match octocrab
-                    .repos(&owner, &repo)
-                    .releases()
-                    .get_latest()
-                    .await
-                {
+                match octocrab.repos(&owner, &repo).releases().get_latest().await {
                     Ok(release) => Ok::<Option<Release>, GitHubRetryableError>(Some(release)),
                     Err(e) if e.to_string().contains("404") => Ok(None),
                     Err(e) => Err(GitHubRetryableError(GitHubError::ApiError(e.to_string()))),
                 }
             }
-        }).await?;
+        })
+        .await?;
 
         Ok(result)
     }
@@ -207,7 +204,7 @@ impl GitHubClient {
         let owner = self.owner.clone();
         let repo = self.repo.clone();
         let retry_config = self.retry_config.clone();
-        
+
         let result = with_retry(&retry_config, "GitHub list releases", || {
             let octocrab = octocrab.clone();
             let owner = owner.clone();
@@ -224,7 +221,8 @@ impl GitHubClient {
 
                 Ok::<Vec<Release>, GitHubRetryableError>(releases.items)
             }
-        }).await?;
+        })
+        .await?;
 
         Ok(result)
     }
@@ -240,7 +238,7 @@ impl GitHubClient {
         let owner = self.owner.clone();
         let repo = self.repo.clone();
         let retry_config = self.retry_config.clone();
-        
+
         // Build request body outside the closure
         let mut request_body = serde_json::Map::new();
         if let Some(b) = body {
@@ -253,7 +251,7 @@ impl GitHubClient {
             request_body.insert("prerelease".to_string(), serde_json::Value::Bool(p));
         }
         let request_body = serde_json::Value::Object(request_body);
-        
+
         let result = with_retry(&retry_config, "GitHub update release", || {
             let octocrab = octocrab.clone();
             let owner = owner.clone();
@@ -269,7 +267,8 @@ impl GitHubClient {
 
                 Ok::<Release, GitHubRetryableError>(release)
             }
-        }).await?;
+        })
+        .await?;
 
         Ok(result)
     }
@@ -279,7 +278,7 @@ impl GitHubClient {
         let owner = self.owner.clone();
         let repo = self.repo.clone();
         let retry_config = self.retry_config.clone();
-        
+
         with_retry(&retry_config, "GitHub delete release", || {
             let octocrab = octocrab.clone();
             let owner = owner.clone();
@@ -294,7 +293,8 @@ impl GitHubClient {
 
                 Ok::<(), GitHubRetryableError>(())
             }
-        }).await?;
+        })
+        .await?;
 
         Ok(())
     }
@@ -310,7 +310,7 @@ impl GitHubClient {
         let tag_name = tag_name.to_string();
         let previous_tag = previous_tag.map(|s| s.to_string());
         let retry_config = self.retry_config.clone();
-        
+
         let result = with_retry(&retry_config, "GitHub generate release notes", || {
             let octocrab = octocrab.clone();
             let owner = owner.clone();
@@ -337,9 +337,14 @@ impl GitHubClient {
                     .get("body")
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string())
-                    .ok_or_else(|| GitHubRetryableError(GitHubError::ApiError("No body in response".to_string())))
+                    .ok_or_else(|| {
+                        GitHubRetryableError(GitHubError::ApiError(
+                            "No body in response".to_string(),
+                        ))
+                    })
             }
-        }).await?;
+        })
+        .await?;
 
         Ok(result)
     }

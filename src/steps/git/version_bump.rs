@@ -2,8 +2,8 @@ use crate::config::Language;
 use crate::error::{ApiForgError, Result};
 use crate::integrations::git::GitRepo;
 use crate::steps::{Step, StepContext, StepOutput};
-use crate::utils::{bump_version, BumpType};
 use crate::utils::version::read_version;
+use crate::utils::{bump_version, BumpType};
 use async_trait::async_trait;
 use std::fs;
 use std::path::PathBuf;
@@ -18,7 +18,7 @@ pub struct VersionBumpStep {
 
 impl VersionBumpStep {
     pub fn new(bump_type: BumpType) -> Self {
-        Self { 
+        Self {
             bump_type,
             original_content: RwLock::new(None),
         }
@@ -74,7 +74,8 @@ impl VersionBumpStep {
 
     fn write_go_version(path: &PathBuf, new_version: &str) -> Result<()> {
         // Try to write to version.go if it exists
-        let version_file = path.parent()
+        let version_file = path
+            .parent()
             .map(|p| p.join("version.go"))
             .filter(|p| p.exists());
 
@@ -88,7 +89,8 @@ impl VersionBumpStep {
                     // Replace the version string
                     if let Some(quote_start) = line.find('"') {
                         if let Some(quote_end) = line[quote_start + 1..].find('"') {
-                            let new_line = format!("{}\"{}\"{}",
+                            let new_line = format!(
+                                "{}\"{}\"{}",
                                 &line[..quote_start + 1],
                                 new_version,
                                 &line[quote_start + 1 + quote_end..]
@@ -136,7 +138,11 @@ impl VersionBumpStep {
                 in_project = false;
             }
 
-            if in_project && !found && trimmed.starts_with("<version>") && trimmed.ends_with("</version>") {
+            if in_project
+                && !found
+                && trimmed.starts_with("<version>")
+                && trimmed.ends_with("</version>")
+            {
                 // Check this isn't a property reference
                 let start = trimmed.find("<version>").unwrap() + "<version>".len();
                 let end = trimmed.find("</version>").unwrap();
@@ -146,7 +152,8 @@ impl VersionBumpStep {
                     // Replace this version
                     let indent = line.len() - line.trim_start().len();
                     let spaces = " ".repeat(indent);
-                    new_content.push_str(&format!("{}<version>{}</version>\n", spaces, new_version));
+                    new_content
+                        .push_str(&format!("{}<version>{}</version>\n", spaces, new_version));
                     found = true;
                     continue;
                 }
@@ -158,7 +165,7 @@ impl VersionBumpStep {
 
         if !found {
             return Err(ApiForgError::Config(
-                "Could not find project version to update in pom.xml".to_string()
+                "Could not find project version to update in pom.xml".to_string(),
             ));
         }
 
@@ -208,16 +215,18 @@ impl Step for VersionBumpStep {
 
     async fn execute(&self, ctx: &StepContext) -> Result<StepOutput> {
         let path = self.get_version_file_path(ctx)?;
-        
+
         // Store original content before modification for safe rollback
         // This preserves any uncommitted changes that the user might have
         let original = fs::read_to_string(&path)?;
         {
-            let mut guard = self.original_content.write()
+            let mut guard = self
+                .original_content
+                .write()
                 .map_err(|_| ApiForgError::StepFailed("Failed to acquire lock".to_string()))?;
             *guard = Some((path.clone(), original));
         }
-        
+
         let current = read_version(ctx.config.project.language, &path)?;
         let new_version = bump_version(&current, self.bump_type)?;
 
@@ -245,9 +254,11 @@ impl Step for VersionBumpStep {
         // This is safer than checkout_file because it preserves any uncommitted changes
         // that existed before the release was started
         let restored = {
-            let guard = self.original_content.read()
+            let guard = self
+                .original_content
+                .read()
                 .map_err(|_| ApiForgError::StepFailed("Failed to acquire lock".to_string()))?;
-            
+
             if let Some((ref path, ref content)) = *guard {
                 fs::write(path, content)?;
                 tracing::info!("Restored {} from saved original content", path.display());
@@ -256,7 +267,7 @@ impl Step for VersionBumpStep {
                 false
             }
         };
-        
+
         if !restored {
             // Fallback: if we don't have the original content (shouldn't happen),
             // log a warning. We can't safely restore without knowing the original state.
@@ -265,7 +276,7 @@ impl Step for VersionBumpStep {
                  The file may need to be manually restored if there were uncommitted changes."
             );
         }
-        
+
         Ok(())
     }
 }
@@ -273,7 +284,7 @@ impl Step for VersionBumpStep {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::utils::version::{read_python_version, read_java_version, read_go_version};
+    use crate::utils::version::{read_go_version, read_java_version, read_python_version};
     use std::io::Write;
     use tempfile::NamedTempFile;
 

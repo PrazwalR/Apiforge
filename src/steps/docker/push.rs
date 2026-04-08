@@ -44,7 +44,10 @@ impl DockerPushStep {
         }
     }
 
-    async fn get_registry_info(&self, ctx: &StepContext) -> Result<(String, Option<DockerCredentials>)> {
+    async fn get_registry_info(
+        &self,
+        ctx: &StepContext,
+    ) -> Result<(String, Option<DockerCredentials>)> {
         let repo = &ctx.config.docker.repository;
 
         match ctx.config.docker.registry {
@@ -64,10 +67,7 @@ impl DockerPushStep {
     }
 
     /// Ensure ECR repository exists, creating it if necessary
-    async fn ensure_ecr_repository(
-        &self,
-        ctx: &StepContext,
-    ) -> Result<String> {
+    async fn ensure_ecr_repository(&self, ctx: &StepContext) -> Result<String> {
         let repo_name = &ctx.config.docker.repository;
         let aws = Self::get_aws_client(ctx).await?;
 
@@ -80,10 +80,7 @@ impl DockerPushStep {
             Err(e) => {
                 // Check if it's a "not found" error
                 if let crate::error::ApiForgError::Aws(AwsError::EcrRepoNotFound(_)) = e {
-                    tracing::info!(
-                        "ECR repository '{}' not found, creating it...",
-                        repo_name
-                    );
+                    tracing::info!("ECR repository '{}' not found, creating it...", repo_name);
                     let repo_uri = aws.create_repository(repo_name).await?;
                     self.ecr_repo_created.store(true, Ordering::SeqCst);
                     tracing::info!("Created ECR repository: {}", repo_uri);

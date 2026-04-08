@@ -107,7 +107,9 @@ impl Step for WebhookNotifyStep {
             .and_then(|n| n.webhook.as_ref());
 
         if webhook.is_none() {
-            return Err(ApiForgError::Config("Webhook configuration missing".to_string()));
+            return Err(ApiForgError::Config(
+                "Webhook configuration missing".to_string(),
+            ));
         }
 
         Ok(())

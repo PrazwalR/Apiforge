@@ -69,7 +69,9 @@ impl Step for SlackNotifyStep {
         let slack = notifications.and_then(|n| n.slack.as_ref());
 
         if slack.is_none() {
-            return Err(ApiForgError::Config("Slack configuration missing".to_string()));
+            return Err(ApiForgError::Config(
+                "Slack configuration missing".to_string(),
+            ));
         }
 
         Ok(())
@@ -91,7 +93,9 @@ impl Step for SlackNotifyStep {
         };
 
         if !should_notify {
-            return Ok(StepOutput::skipped("Notification not configured for this status"));
+            return Ok(StepOutput::skipped(
+                "Notification not configured for this status",
+            ));
         }
 
         // Build template context
