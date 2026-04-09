@@ -163,9 +163,8 @@ impl DockerClient {
         })?;
 
         for entry in entries {
-            let entry = entry.map_err(|e| {
-                DockerError::BuildFailed(format!("Failed to read entry: {}", e))
-            })?;
+            let entry = entry
+                .map_err(|e| DockerError::BuildFailed(format!("Failed to read entry: {}", e)))?;
 
             let file_name = entry.file_name();
             let entry_relative = relative_path.join(&file_name);
@@ -181,7 +180,10 @@ impl DockerClient {
             }
 
             let metadata = entry.metadata().map_err(|e| {
-                DockerError::BuildFailed(format!("Failed to get metadata for {:?}: {}", entry_path, e))
+                DockerError::BuildFailed(format!(
+                    "Failed to get metadata for {:?}: {}",
+                    entry_path, e
+                ))
             })?;
 
             if metadata.is_dir() {

@@ -81,11 +81,7 @@ impl AuditStore {
             }
         }
 
-        let db = retry::with_sled_retry(
-            &retry_config,
-            "Open audit database",
-            || sled::open(path),
-        )?;
+        let db = retry::with_sled_retry(&retry_config, "Open audit database", || sled::open(path))?;
 
         info!("Audit store opened at {:?}", path);
         Ok(Self { db, retry_config })
@@ -102,10 +98,9 @@ impl AuditStore {
         })?;
 
         // Flush after each write to ensure data persistence
-        retry::with_sled_retry(&self.retry_config,
-            "Flush audit database",
-            || self.db.flush(),
-        )?;
+        retry::with_sled_retry(&self.retry_config, "Flush audit database", || {
+            self.db.flush()
+        })?;
 
         debug!("Audit record written: {}", record.id);
         Ok(())
@@ -114,18 +109,20 @@ impl AuditStore {
     pub fn list(&self, limit: usize) -> crate::error::Result<Vec<ReleaseRecord>> {
         let mut records: Vec<ReleaseRecord> = Vec::new();
 
-        let entries: Vec<(sled::IVec, sled::IVec)> = retry::with_sled_retry(
-            &self.retry_config,
-            "Iterate audit database",
-            || self.db.iter().rev().collect::<Result<Vec<_>, _>>(),
-        )?;
+        let entries: Vec<(sled::IVec, sled::IVec)> =
+            retry::with_sled_retry(&self.retry_config, "Iterate audit database", || {
+                self.db.iter().rev().collect::<Result<Vec<_>, _>>()
+            })?;
 
         for (key, value) in entries {
             if records.len() >= limit {
                 break;
             }
             let record: ReleaseRecord = serde_json::from_slice(&value).map_err(|e| {
-                crate::error::ApiForgError::Audit(format!("Failed to deserialize record for key {:?}: {}", key, e))
+                crate::error::ApiForgError::Audit(format!(
+                    "Failed to deserialize record for key {:?}: {}",
+                    key, e
+                ))
             })?;
             records.push(record);
         }
@@ -134,19 +131,17 @@ impl AuditStore {
 
     /// Flush the database to disk explicitly
     pub fn flush(&self) -> crate::error::Result<()> {
-        retry::with_sled_retry(&self.retry_config,
-            "Flush audit database",
-            || self.db.flush(),
-        )?;
+        retry::with_sled_retry(&self.retry_config, "Flush audit database", || {
+            self.db.flush()
+        })?;
         Ok(())
     }
 
     /// Get the approximate size of the database on disk
     pub fn size_on_disk(&self) -> crate::error::Result<u64> {
-        let size = retry::with_sled_retry(&self.retry_config,
-            "Get database size",
-            || self.db.size_on_disk(),
-        )?;
+        let size = retry::with_sled_retry(&self.retry_config, "Get database size", || {
+            self.db.size_on_disk()
+        })?;
         Ok(size)
     }
 
@@ -162,10 +157,9 @@ impl AuditStore {
         let size_before = self.size_on_disk()?;
         debug!("Database size before compaction: {} bytes", size_before);
 
-        retry::with_sled_retry(&self.retry_config,
-            "Compact audit database",
-            || self.db.flush(),
-        )?;
+        retry::with_sled_retry(&self.retry_config, "Compact audit database", || {
+            self.db.flush()
+        })?;
 
         // Force a full compaction by reopening the database
         // This is a sled best practice for reclaiming space
@@ -188,7 +182,10 @@ impl AuditStore {
                 }
             );
         } else {
-            info!("Compaction completed: no space to reclaim (size: {} bytes)", size_after);
+            info!(
+                "Compaction completed: no space to reclaim (size: {} bytes)",
+                size_after
+            );
         }
 
         Ok(())
@@ -197,9 +194,7 @@ impl AuditStore {
     /// Compact the database if it exceeds the given size threshold
     ///
     /// Returns true if compaction was performed
-    pub fn compact_if_needed(&self,
-        threshold_bytes: u64,
-    ) -> crate::error::Result<bool> {
+    pub fn compact_if_needed(&self, threshold_bytes: u64) -> crate::error::Result<bool> {
         let size = self.size_on_disk()?;
         if size > threshold_bytes {
             warn!(
@@ -242,10 +237,8 @@ impl AuditStore {
 
         let mut deleted = 0usize;
 
-        let keys_to_delete: Vec<Vec<u8>> = retry::with_sled_retry(
-            &self.retry_config,
-            "Scan for old records",
-            || {
+        let keys_to_delete: Vec<Vec<u8>> =
+            retry::with_sled_retry(&self.retry_config, "Scan for old records", || {
                 let mut keys = Vec::new();
                 for entry in self.db.iter() {
                     let (key, _) = entry?;
@@ -258,22 +251,23 @@ impl AuditStore {
                     }
                 }
                 Ok::<_, sled::Error>(keys)
-            },
-        )
-        .map_err(|e| {
-            crate::error::ApiForgError::Audit(format!("Failed to scan records: {}", e))
-        })?;
+            })
+            .map_err(|e| {
+                crate::error::ApiForgError::Audit(format!("Failed to scan records: {}", e))
+            })?;
 
         for key in keys_to_delete {
-            retry::with_sled_retry(&self.retry_config,
-                "Delete old record",
-                || self.db.remove(&key),
-            )?;
+            retry::with_sled_retry(&self.retry_config, "Delete old record", || {
+                self.db.remove(&key)
+            })?;
             deleted += 1;
         }
 
         if deleted > 0 {
-            info!("Pruned {} records older than {} days", deleted, retention_days);
+            info!(
+                "Pruned {} records older than {} days",
+                deleted, retention_days
+            );
             self.flush()?;
         }
 
