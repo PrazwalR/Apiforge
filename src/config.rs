@@ -58,6 +58,15 @@ pub struct GitConfig {
     pub require_clean: bool,
     #[serde(default = "default_true")]
     pub require_main_branch: bool,
+    /// Timeout in seconds for git fetch operations (default: 60)
+    #[serde(default = "default_git_fetch_timeout")]
+    pub fetch_timeout_secs: u64,
+    /// Timeout in seconds for git push operations (default: 120)
+    #[serde(default = "default_git_push_timeout")]
+    pub push_timeout_secs: u64,
+    /// Timeout in seconds for other git operations (default: 30)
+    #[serde(default = "default_git_operation_timeout")]
+    pub operation_timeout_secs: u64,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -213,6 +222,18 @@ fn default_notify_on() -> NotifyOn {
 
 fn default_method() -> String {
     "POST".to_string()
+}
+
+fn default_git_fetch_timeout() -> u64 {
+    60
+}
+
+fn default_git_push_timeout() -> u64 {
+    120
+}
+
+fn default_git_operation_timeout() -> u64 {
+    30
 }
 
 fn default_expected_status() -> u16 {
