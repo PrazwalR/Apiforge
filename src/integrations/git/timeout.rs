@@ -71,7 +71,10 @@ where
     F: FnOnce() -> Result<T> + Send + 'static,
     T: Send + 'static,
 {
-    debug!("Starting git operation '{}' with timeout {:?}", operation_name, timeout_duration);
+    debug!(
+        "Starting git operation '{}' with timeout {:?}",
+        operation_name, timeout_duration
+    );
 
     let handle = task::spawn_blocking(operation);
 
@@ -85,17 +88,17 @@ where
             Err(TimeoutError::JoinError(e).into())
         }
         Err(_) => {
-            warn!("Git operation '{}' timed out after {:?}", operation_name, timeout_duration);
+            warn!(
+                "Git operation '{}' timed out after {:?}",
+                operation_name, timeout_duration
+            );
             Err(TimeoutError::Timeout(timeout_duration).into())
         }
     }
 }
 
 /// Execute a git fetch with timeout
-pub async fn fetch_with_timeout<F, T>(
-    operation: F,
-    config: &GitTimeoutConfig,
-) -> Result<T>
+pub async fn fetch_with_timeout<F, T>(operation: F, config: &GitTimeoutConfig) -> Result<T>
 where
     F: FnOnce() -> Result<T> + Send + 'static,
     T: Send + 'static,
@@ -104,10 +107,7 @@ where
 }
 
 /// Execute a git push with timeout
-pub async fn push_with_timeout<F, T>(
-    operation: F,
-    config: &GitTimeoutConfig,
-) -> Result<T>
+pub async fn push_with_timeout<F, T>(operation: F, config: &GitTimeoutConfig) -> Result<T>
 where
     F: FnOnce() -> Result<T> + Send + 'static,
     T: Send + 'static,
@@ -134,11 +134,11 @@ pub fn is_timeout_retryable(err: &crate::error::ApiForgError) -> bool {
         crate::error::ApiForgError::Git(git_err) => {
             let msg = git_err.to_string().to_lowercase();
             // Retry on timeout-related errors
-            msg.contains("timeout") ||
-            msg.contains("timed out") ||
-            msg.contains("connection") ||
-            msg.contains("network") ||
-            msg.contains("unreachable")
+            msg.contains("timeout")
+                || msg.contains("timed out")
+                || msg.contains("connection")
+                || msg.contains("network")
+                || msg.contains("unreachable")
         }
         _ => false,
     }
@@ -166,11 +166,8 @@ mod tests {
     #[tokio::test]
     async fn test_timeout_success() {
         let config = GitTimeoutConfig::default();
-        let result: Result<&str> = operation_with_timeout(
-            || Ok("success"),
-            &config,
-            "test_op",
-        ).await;
+        let result: Result<&str> =
+            operation_with_timeout(|| Ok("success"), &config, "test_op").await;
         assert_eq!(result.unwrap(), "success");
     }
 
@@ -188,7 +185,8 @@ mod tests {
             },
             &config,
             "slow_op",
-        ).await;
+        )
+        .await;
 
         assert!(result.is_err());
         let err_str = format!("{}", result.unwrap_err());

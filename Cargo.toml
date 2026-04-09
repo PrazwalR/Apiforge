@@ -43,9 +43,9 @@ git2 = "0.19"
 # Docker
 bollard = "0.16"
 
-# Kubernetes
-kube = { version = "0.98", features = ["runtime", "derive"] }
-k8s-openapi = { version = "0.24", features = ["v1_32"] }
+# Kubernetes - using older version compatible with Rust 1.70.0
+kube = { version = "0.87", features = ["runtime", "derive"] }
+k8s-openapi = { version = "0.20", features = ["v1_28"] }
 
 # AWS
 aws-config = "1"
