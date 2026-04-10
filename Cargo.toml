@@ -18,7 +18,7 @@ path = "src/main.rs"
 
 [dependencies]
 # CLI
-clap = { version = "=4.4.18", features = ["derive", "env"] }
+clap = { version = "=4.6.0", features = ["derive", "env"] }
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }
@@ -94,8 +94,8 @@ tar = "0.4"
 tokio-test = "0.4"
 mockito = "1"
 tempfile = "3"
-assert_cmd = "=2.0.14"
-predicates = "=3.0.4"
+assert_cmd = "=2.2.0"
+predicates = "=3.1.4"
 criterion = "0.5"
 
 [[bench]]
