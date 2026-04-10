@@ -100,7 +100,7 @@ sudo cp target/release/apiforge /usr/local/bin/
 
 ```bash
 apiforge --version
-# apiforge 0.1.0
+# apiforge 0.2.0
 ```
 
 ---
@@ -316,9 +316,13 @@ language = "rust"  # rust, node, python, go, java
 require_clean = true           # Require clean working tree
 require_main_branch = true     # Only release from main/master
 main_branch = "main"           # Name of main branch
+remote = "origin"              # Remote to push tags/commits to
 tag_format = "v{version}"      # Tag format ({version} is replaced)
 changelog = true               # Generate changelog
 commit_message = "Release v{{ version }}"
+fetch_timeout_secs = 60        # Timeout for git fetch (seconds)
+push_timeout_secs = 120        # Timeout for git push (seconds)
+operation_timeout_secs = 30    # Timeout for other git ops (seconds)
 
 # Docker configuration
 [docker]
@@ -382,6 +386,90 @@ token = "${GITHUB_TOKEN}"
 
 [notifications.slack]
 webhook_url = "${SLACK_WEBHOOK_URL}"
+```
+
+### Configuration Examples
+
+Ready-to-copy files are available in:
+- `examples/rust-ecr-k8s.apiforge.toml`
+- `examples/node-ghcr.apiforge.toml`
+
+#### Rust service on ECR + Kubernetes
+
+```toml
+[project]
+name = "payments-api"
+language = "rust"
+
+[git]
+main_branch = "main"
+remote = "origin"
+tag_format = "v{version}"
+commit_message = "chore: release v{{ version }}"
+require_clean = true
+require_main_branch = true
+fetch_timeout_secs = 60
+push_timeout_secs = 120
+operation_timeout_secs = 30
+
+[docker]
+registry = "aws_ecr"
+repository = "payments-api"
+tags = ["{version}", "latest"]
+
+[aws]
+region = "us-east-1"
+
+[kubernetes]
+context = "prod-cluster"
+namespace = "payments"
+deployment = "payments-api"
+image_field = "payments-api"
+rollout_timeout = 300
+min_ready_percent = 100
+```
+
+#### Node service on GHCR (no Kubernetes)
+
+```toml
+[project]
+name = "webhook-gateway"
+language = "node"
+
+[git]
+main_branch = "main"
+remote = "origin"
+tag_format = "v{version}"
+commit_message = "release: {{ version }}"
+require_clean = true
+require_main_branch = true
+fetch_timeout_secs = 60
+push_timeout_secs = 120
+operation_timeout_secs = 30
+
+[docker]
+registry = "ghcr"
+repository = "my-org/webhook-gateway"
+tags = ["{version}", "latest", "sha-{git_sha}"]
+
+[kubernetes]
+context = "unused"
+namespace = "unused"
+deployment = "unused"
+manifest_path = "k8s/deployment.yaml"
+image_field = "app"
+rollout_timeout = 300
+min_ready_percent = 100
+
+[aws]
+region = "us-east-1"
+
+[github]
+repository = "my-org/webhook-gateway"
+token = "${GITHUB_TOKEN}"
+create_release = true
+prerelease = false
+draft = false
 ```
 
 ### Template Variables
@@ -747,6 +835,9 @@ cargo clippy
 
 # Format code
 cargo fmt
+
+# Compile and run performance benchmarks
+cargo bench --bench performance
 ```
 
 ### Running Locally

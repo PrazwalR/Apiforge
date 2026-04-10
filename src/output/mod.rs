@@ -2,6 +2,7 @@ use colored::Colorize;
 use comfy_table::{ContentArrangement, Table};
 
 use crate::steps::{StepOutput, StepStatus};
+use crate::utils::sanitize_message;
 
 pub struct OutputManager {}
 
@@ -33,7 +34,13 @@ impl OutputManager {
     }
 
     pub fn step_fail(&self, name: &str, error: &str) {
-        println!("  {} {} {}", "✗".red().bold(), name.bold(), error.red());
+        let safe_error = sanitize_message(error);
+        println!(
+            "  {} {} {}",
+            "✗".red().bold(),
+            name.bold(),
+            safe_error.red()
+        );
     }
 
     pub fn blank_line(&self) {
@@ -62,7 +69,8 @@ impl OutputManager {
     }
 
     pub fn error(&self, msg: &str) {
-        println!("\n{}", format!("  ✗ {}", msg).red().bold());
+        let safe_msg = sanitize_message(msg);
+        println!("\n{}", format!("  ✗ {}", safe_msg).red().bold());
     }
 
     pub fn info(&self, msg: &str) {

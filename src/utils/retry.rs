@@ -263,6 +263,65 @@ mod tests {
         assert_eq!(attempts.load(Ordering::SeqCst), 1); // No retries for non-retryable
     }
 
+    #[tokio::test]
+    async fn test_retry_exhausts_retryable_errors() {
+        let attempts = Arc::new(AtomicU32::new(0));
+        let attempts_clone = attempts.clone();
+
+        let config = RetryConfig {
+            max_retries: 2,
+            initial_delay: Duration::from_millis(1),
+            max_delay: Duration::from_millis(10),
+            backoff_multiplier: 2.0,
+            add_jitter: false,
+        };
+
+        let result: Result<&str, TestError> = with_retry(&config, "test", || {
+            let attempts = attempts_clone.clone();
+            async move {
+                attempts.fetch_add(1, Ordering::SeqCst);
+                Err(TestError {
+                    retryable: true,
+                    message: "still transient".to_string(),
+                })
+            }
+        })
+        .await;
+
+        assert!(result.is_err());
+        // Initial attempt + 2 retries = 3 total attempts
+        assert_eq!(attempts.load(Ordering::SeqCst), 3);
+    }
+
+    #[tokio::test]
+    async fn test_retry_with_zero_retries_attempts_once() {
+        let attempts = Arc::new(AtomicU32::new(0));
+        let attempts_clone = attempts.clone();
+
+        let config = RetryConfig {
+            max_retries: 0,
+            initial_delay: Duration::from_millis(1),
+            max_delay: Duration::from_millis(10),
+            backoff_multiplier: 2.0,
+            add_jitter: false,
+        };
+
+        let result: Result<&str, TestError> = with_retry(&config, "test", || {
+            let attempts = attempts_clone.clone();
+            async move {
+                attempts.fetch_add(1, Ordering::SeqCst);
+                Err(TestError {
+                    retryable: true,
+                    message: "transient".to_string(),
+                })
+            }
+        })
+        .await;
+
+        assert!(result.is_err());
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
+    }
+
     #[test]
     fn test_calculate_delay_with_backoff() {
         let config = RetryConfig {
@@ -291,5 +350,18 @@ mod tests {
 
         // After several retries, should cap at max_delay
         assert_eq!(config.calculate_delay(10), Duration::from_secs(5));
+    }
+
+    #[test]
+    fn test_fast_and_slow_profiles() {
+        let fast = RetryConfig::fast();
+        assert_eq!(fast.max_retries, 2);
+        assert_eq!(fast.initial_delay, Duration::from_millis(100));
+        assert_eq!(fast.max_delay, Duration::from_secs(2));
+
+        let slow = RetryConfig::slow();
+        assert_eq!(slow.max_retries, 5);
+        assert_eq!(slow.initial_delay, Duration::from_secs(1));
+        assert_eq!(slow.max_delay, Duration::from_secs(60));
     }
 }

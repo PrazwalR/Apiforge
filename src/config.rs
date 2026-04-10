@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+/// Root configuration loaded from `apiforge.toml`.
 pub struct Config {
     pub project: ProjectConfig,
     pub git: GitConfig,
@@ -18,6 +19,7 @@ pub struct Config {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+/// Project identity and language metadata.
 pub struct ProjectConfig {
     pub name: String,
     pub language: Language,
@@ -25,6 +27,7 @@ pub struct ProjectConfig {
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
+/// Supported project language types for version file detection.
 pub enum Language {
     Rust,
     Node,
@@ -46,6 +49,7 @@ impl Language {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+/// Git settings for branch checks, tagging, and commit behavior.
 pub struct GitConfig {
     pub main_branch: String,
     pub tag_format: String,
@@ -70,6 +74,7 @@ pub struct GitConfig {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+/// Docker build and push settings.
 pub struct DockerConfig {
     pub registry: DockerRegistry,
     pub repository: String,
@@ -84,6 +89,7 @@ pub struct DockerConfig {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
+/// Supported container registry backends.
 pub enum DockerRegistry {
     AwsEcr,
     DockerHub,
@@ -92,6 +98,7 @@ pub enum DockerRegistry {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+/// Kubernetes deployment rollout settings.
 pub struct KubernetesConfig {
     pub context: String,
     pub namespace: String,
@@ -105,6 +112,7 @@ pub struct KubernetesConfig {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+/// AWS configuration used by cloud integrations.
 pub struct AwsConfig {
     pub region: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -112,6 +120,7 @@ pub struct AwsConfig {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+/// GitHub release settings.
 pub struct GitHubConfig {
     pub repository: String,
     pub token: String,
@@ -124,6 +133,7 @@ pub struct GitHubConfig {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+/// Outbound notification configuration.
 pub struct NotificationsConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub slack: Option<SlackConfig>,
@@ -132,6 +142,7 @@ pub struct NotificationsConfig {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+/// Slack notification settings.
 pub struct SlackConfig {
     pub webhook_url: String,
     pub message: String,
@@ -140,6 +151,7 @@ pub struct SlackConfig {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+/// Generic webhook notification settings.
 pub struct WebhookConfig {
     pub url: String,
     #[serde(default = "default_method")]
@@ -151,6 +163,7 @@ pub struct WebhookConfig {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
+/// Notification trigger mode.
 pub enum NotifyOn {
     Success,
     Failure,
@@ -159,6 +172,7 @@ pub enum NotifyOn {
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "UPPERCASE")]
+/// HTTP methods supported by health checks.
 pub enum HttpMethod {
     #[default]
     GET,
@@ -168,6 +182,7 @@ pub enum HttpMethod {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+/// Health endpoint polling configuration.
 pub struct HealthCheckConfig {
     pub url: String,
     #[serde(default = "default_http_method")]
@@ -270,6 +285,24 @@ impl Config {
             ));
         }
 
+        if self.git.fetch_timeout_secs == 0 {
+            return Err(crate::error::ApiForgError::Config(
+                "git.fetch_timeout_secs must be greater than 0".to_string(),
+            ));
+        }
+
+        if self.git.push_timeout_secs == 0 {
+            return Err(crate::error::ApiForgError::Config(
+                "git.push_timeout_secs must be greater than 0".to_string(),
+            ));
+        }
+
+        if self.git.operation_timeout_secs == 0 {
+            return Err(crate::error::ApiForgError::Config(
+                "git.operation_timeout_secs must be greater than 0".to_string(),
+            ));
+        }
+
         // Docker validations
         if self.docker.repository.is_empty() {
             return Err(crate::error::ApiForgError::Config(
@@ -332,21 +365,35 @@ impl Config {
                     "docker.tags cannot contain empty strings".to_string(),
                 ));
             }
-            // Check resolved template placeholders aren't present in validation context
-            // For templates like {{version}}, we'll skip length check as the actual value isn't known
-            if !tag.contains("{{") {
-                if tag.len() > 128 {
-                    return Err(crate::error::ApiForgError::Config(format!(
-                        "docker tag '{}' exceeds 128 character limit",
-                        tag
-                    )));
-                }
-                if !tag_regex.is_match(tag) {
-                    return Err(crate::error::ApiForgError::Config(format!(
-                        "docker tag '{}' has invalid format. Tags must start with alphanumeric and contain only [a-zA-Z0-9_.-]",
-                        tag
-                    )));
-                }
+
+            // Resolve supported placeholders to validate final docker tag syntax.
+            // Supported placeholders mirror docker tag expansion in steps.
+            let resolved_tag = tag
+                .replace("{version}", "1.2.3")
+                .replace("{major}", "1")
+                .replace("{minor}", "2")
+                .replace("{patch}", "3")
+                .replace("{git_sha}", "abcdef0")
+                .replace("{git_sha_full}", "abcdef0123456789");
+
+            if resolved_tag.contains('{') || resolved_tag.contains('}') {
+                return Err(crate::error::ApiForgError::Config(format!(
+                    "docker tag '{}' contains unsupported placeholder(s). Supported placeholders: {{version}}, {{major}}, {{minor}}, {{patch}}, {{git_sha}}, {{git_sha_full}}",
+                    tag
+                )));
+            }
+
+            if resolved_tag.len() > 128 {
+                return Err(crate::error::ApiForgError::Config(format!(
+                    "docker tag '{}' exceeds 128 character limit after template resolution",
+                    tag
+                )));
+            }
+            if !tag_regex.is_match(&resolved_tag) {
+                return Err(crate::error::ApiForgError::Config(format!(
+                    "docker tag '{}' has invalid format after template resolution ('{}'). Tags must start with alphanumeric and contain only [a-zA-Z0-9_.-]",
+                    tag, resolved_tag
+                )));
             }
         }
 
