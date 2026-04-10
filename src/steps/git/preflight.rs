@@ -56,6 +56,35 @@ impl Step for GitPreflightStep {
         }
 
         let current_branch = repo.current_branch()?;
+        let repo_path = repo.root_path();
+        drop(repo);
+
+        let timeout_config = crate::integrations::git::GitTimeoutConfig::from_config(
+            ctx.config.git.fetch_timeout_secs,
+            ctx.config.git.push_timeout_secs,
+            ctx.config.git.operation_timeout_secs,
+        );
+
+        if !ctx.dry_run {
+            // Refresh remote tracking refs before comparing ahead/behind.
+            // This ensures sync checks are based on current remote state.
+            let remote_name = ctx.config.git.remote.clone();
+            crate::integrations::git::fetch_with_timeout(
+                move || {
+                    let repo = GitRepo::open_at(&repo_path)?;
+                    repo.fetch(&remote_name)?;
+                    Ok(())
+                },
+                &timeout_config,
+            )
+            .await?;
+        } else {
+            tracing::debug!(
+                "Skipping remote fetch during dry-run preflight; using local tracking refs only"
+            );
+        }
+
+        let repo = GitRepo::open()?;
         let (ahead, behind) = repo.check_remote_sync(&current_branch, &ctx.config.git.remote)?;
 
         if behind > 0 {

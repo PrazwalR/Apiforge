@@ -57,6 +57,9 @@ commit_message = "chore: release v{{{{ version }}}}"
 remote = "origin"
 require_clean = true
 require_main_branch = true
+fetch_timeout_secs = 60
+push_timeout_secs = 120
+operation_timeout_secs = 30
 
 [docker]
 registry = "aws_ecr"

@@ -49,7 +49,7 @@ pub enum TimeoutError {
 impl std::fmt::Display for TimeoutError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            TimeoutError::Timeout(d) => write!(f, "Operation timed out after {:?}", d),
+            TimeoutError::Timeout(d) => write!(f, "Operation timed out after {}s", d.as_secs()),
             TimeoutError::GitError(e) => write!(f, "Git error: {}", e),
             TimeoutError::JoinError(e) => write!(f, "Task join error: {}", e),
         }
@@ -148,9 +148,11 @@ pub fn is_timeout_retryable(err: &crate::error::ApiForgError) -> bool {
 impl From<TimeoutError> for crate::error::ApiForgError {
     fn from(err: TimeoutError) -> Self {
         match err {
-            TimeoutError::Timeout(d) => {
-                GitError::GitOperation(format!("Operation timed out after {:?}", d)).into()
-            }
+            TimeoutError::Timeout(d) => GitError::GitOperation(format!(
+                "Git operation timed out after {}s. Increase git.fetch_timeout_secs/git.push_timeout_secs in apiforge.toml if needed.",
+                d.as_secs()
+            ))
+            .into(),
             TimeoutError::GitError(e) => e,
             TimeoutError::JoinError(e) => {
                 GitError::GitOperation(format!("Task failed: {}", e)).into()

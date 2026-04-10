@@ -8,6 +8,11 @@ use uuid::Uuid;
 
 pub mod retry;
 
+#[cfg(test)]
+const MAX_AUDIT_RECORDS: usize = 50;
+#[cfg(not(test))]
+const MAX_AUDIT_RECORDS: usize = 10_000;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReleaseRecord {
     pub id: String,
@@ -69,16 +74,14 @@ impl AuditStore {
         path: &Path,
         retry_config: retry::AuditRetryConfig,
     ) -> crate::error::Result<Self> {
-        // Auto-create parent directories if they don't exist
-        if let Some(parent) = path.parent() {
-            if !parent.exists() {
-                std::fs::create_dir_all(parent).map_err(|e| {
-                    crate::error::ApiForgError::Audit(format!(
-                        "Failed to create audit directory {:?}: {}",
-                        parent, e
-                    ))
-                })?;
-            }
+        // Ensure audit path exists before opening sled.
+        if !path.exists() {
+            std::fs::create_dir_all(path).map_err(|e| {
+                crate::error::ApiForgError::Audit(format!(
+                    "Failed to create audit directory {:?}: {}",
+                    path, e
+                ))
+            })?;
         }
 
         let db = retry::with_sled_retry(&retry_config, "Open audit database", || sled::open(path))?;
@@ -101,6 +104,14 @@ impl AuditStore {
         retry::with_sled_retry(&self.retry_config, "Flush audit database", || {
             self.db.flush()
         })?;
+
+        let pruned = self.prune_excess_records(MAX_AUDIT_RECORDS)?;
+        if pruned > 0 {
+            info!(
+                "Audit record retention enforced: pruned {} old record(s), retained latest {}",
+                pruned, MAX_AUDIT_RECORDS
+            );
+        }
 
         debug!("Audit record written: {}", record.id);
         Ok(())
@@ -157,14 +168,9 @@ impl AuditStore {
         let size_before = self.size_on_disk()?;
         debug!("Database size before compaction: {} bytes", size_before);
 
+        let pruned = self.prune_excess_records(MAX_AUDIT_RECORDS)?;
         retry::with_sled_retry(&self.retry_config, "Compact audit database", || {
             self.db.flush()
-        })?;
-
-        // Force a full compaction by reopening the database
-        // This is a sled best practice for reclaiming space
-        self.db.flush().map_err(|e| {
-            crate::error::ApiForgError::Audit(format!("Failed to flush before compaction: {}", e))
         })?;
 
         let size_after = self.size_on_disk()?;
@@ -185,6 +191,13 @@ impl AuditStore {
             info!(
                 "Compaction completed: no space to reclaim (size: {} bytes)",
                 size_after
+            );
+        }
+
+        if pruned > 0 {
+            info!(
+                "Compaction also pruned {} old record(s) to enforce retention limit ({})",
+                pruned, MAX_AUDIT_RECORDS
             );
         }
 
@@ -210,6 +223,40 @@ impl AuditStore {
             );
             Ok(false)
         }
+    }
+
+    fn prune_excess_records(&self, max_records: usize) -> crate::error::Result<usize> {
+        let total = self.db.len();
+        if total <= max_records {
+            return Ok(0);
+        }
+
+        let to_delete = total - max_records;
+        let keys_to_delete: Vec<Vec<u8>> =
+            retry::with_sled_retry(&self.retry_config, "Collect records for pruning", || {
+                let mut keys = Vec::with_capacity(to_delete);
+                for entry in self.db.iter().take(to_delete) {
+                    let (key, _) = entry?;
+                    keys.push(key.to_vec());
+                }
+                Ok::<_, sled::Error>(keys)
+            })?;
+
+        let mut deleted = 0usize;
+        for key in keys_to_delete {
+            retry::with_sled_retry(&self.retry_config, "Prune old record", || {
+                self.db.remove(&key)
+            })?;
+            deleted += 1;
+        }
+
+        if deleted > 0 {
+            retry::with_sled_retry(&self.retry_config, "Flush pruned records", || {
+                self.db.flush()
+            })?;
+        }
+
+        Ok(deleted)
     }
 
     /// Get the number of records in the database
@@ -304,6 +351,7 @@ impl AuditStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::Duration as ChronoDuration;
     use std::time::Duration;
     use tempfile::TempDir;
 
@@ -457,6 +505,27 @@ mod tests {
         let deleted = store.prune_old_records(0).unwrap();
         assert_eq!(deleted, 0);
         assert_eq!(store.len().unwrap(), 1);
+    }
+
+    #[test]
+    fn test_audit_store_auto_prunes_excess_records() {
+        let (store, _temp) = create_test_store();
+        let base_ts = chrono::DateTime::parse_from_rfc3339("2024-01-01T00:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let total_records = MAX_AUDIT_RECORDS + 5;
+
+        for i in 0..total_records {
+            let mut record = AuditStore::new_record(&format!("1.0.{}", i), "patch", false);
+            record.id = format!("id-{:04}", i);
+            record.timestamp = (base_ts + ChronoDuration::seconds(i as i64)).to_rfc3339();
+            store.record(&record).unwrap();
+        }
+
+        assert_eq!(store.len().unwrap(), MAX_AUDIT_RECORDS);
+        let records = store.list(MAX_AUDIT_RECORDS + 10).unwrap();
+        assert_eq!(records.first().unwrap().version, "1.0.54");
+        assert_eq!(records.last().unwrap().version, "1.0.5");
     }
 
     #[test]

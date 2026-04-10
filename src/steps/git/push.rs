@@ -39,17 +39,50 @@ impl Step for GitPushStep {
 
     async fn execute(&self, ctx: &StepContext) -> Result<StepOutput> {
         let repo = GitRepo::open()?;
-        let remote = &ctx.config.git.remote;
+        let remote = ctx.config.git.remote.clone();
         let branch = repo.current_branch()?;
+
+        // Create timeout config from git config
+        let timeout_config = crate::integrations::git::GitTimeoutConfig::from_config(
+            ctx.config.git.fetch_timeout_secs,
+            ctx.config.git.push_timeout_secs,
+            ctx.config.git.operation_timeout_secs,
+        );
 
         // Store the commit sha before pushing (for potential rollback)
         let commit_sha = repo.current_commit_sha()?;
         tracing::debug!("GitPushStep: Current commit before push: {}", commit_sha);
 
-        repo.push(remote, &format!("refs/heads/{}", branch))?;
-
+        // Clone repo root path for use in async block
+        let repo_path = repo.root_path();
         let tag_name = self.get_tag_name(ctx);
-        repo.push(remote, &format!("refs/tags/{}", tag_name))?;
+
+        // Push branch with timeout - using free function to avoid borrowing repo across await
+        let repo_path1 = repo_path.clone();
+        let remote1 = remote.clone();
+        let branch1 = branch.clone();
+        crate::integrations::git::push_with_timeout(
+            move || {
+                let repo = GitRepo::open_at(&repo_path1)?;
+                repo.push(&remote1, &format!("refs/heads/{}", branch1))?;
+                Ok(())
+            },
+            &timeout_config,
+        )
+        .await?;
+
+        // Push tag with timeout
+        let repo_path2 = repo_path.clone();
+        let remote2 = remote.clone();
+        crate::integrations::git::push_with_timeout(
+            move || {
+                let repo = GitRepo::open_at(&repo_path2)?;
+                repo.push(&remote2, &format!("refs/tags/{}", tag_name))?;
+                Ok(())
+            },
+            &timeout_config,
+        )
+        .await?;
 
         Ok(StepOutput::ok(format!(
             "Pushed to {} (branch + tag)",
@@ -70,13 +103,35 @@ impl Step for GitPushStep {
 
     async fn rollback(&self, ctx: &StepContext) -> Result<()> {
         let repo = GitRepo::open()?;
-        let remote = &ctx.config.git.remote;
+        let remote = ctx.config.git.remote.clone();
         let tag_name = self.get_tag_name(ctx);
+
+        // Create timeout config from git config
+        let timeout_config = crate::integrations::git::GitTimeoutConfig::from_config(
+            ctx.config.git.fetch_timeout_secs,
+            ctx.config.git.push_timeout_secs,
+            ctx.config.git.operation_timeout_secs,
+        );
 
         tracing::info!("Rolling back git push: deleting remote tag {}", tag_name);
 
-        // Delete the remote tag first (this is the most important part)
-        match repo.delete_remote_tag(remote, &tag_name) {
+        // Clone repo root path for use in async block
+        let repo_path = repo.root_path();
+
+        // Delete the remote tag first with timeout (this is the most important part)
+        let repo_path2 = repo_path.clone();
+        let remote2 = remote.clone();
+        let tag_name2 = tag_name.clone();
+        match crate::integrations::git::push_with_timeout(
+            move || {
+                let repo = GitRepo::open_at(&repo_path2)?;
+                repo.delete_remote_tag(&remote2, &tag_name2)?;
+                Ok(())
+            },
+            &timeout_config,
+        )
+        .await
+        {
             Ok(()) => {
                 tracing::info!("Successfully deleted remote tag {}", tag_name);
             }

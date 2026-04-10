@@ -4,27 +4,35 @@ use bollard::image::{BuildImageOptions, PushImageOptions, TagImageOptions};
 use bollard::Docker;
 use futures::StreamExt;
 use std::collections::HashMap;
-use std::path::Path;
-use tokio::fs::File;
-use tokio::io::AsyncReadExt;
+use std::path::{Path, PathBuf};
 
 pub struct DockerClient {
     docker: Docker,
 }
 
 #[derive(Debug, Clone)]
+/// Parameters for building a Docker image from a context and Dockerfile.
 pub struct BuildConfig {
+    /// Dockerfile path relative to build context.
     pub dockerfile: String,
+    /// Build context directory path.
     pub context: String,
+    /// Tags to apply; first tag is used as primary build tag.
     pub tags: Vec<String>,
+    /// Build arguments passed to Docker build.
     pub build_args: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone)]
+/// Parameters for pushing an image tag to a registry.
 pub struct PushConfig {
+    /// Repository/image name.
     pub image: String,
+    /// Tag to push.
     pub tag: String,
+    /// Optional registry hostname/prefix.
     pub registry: Option<String>,
+    /// Optional registry credentials.
     pub credentials: Option<DockerCredentials>,
 }
 
@@ -58,20 +66,7 @@ impl DockerClient {
     {
         let context_path = Path::new(&config.context);
         let tar_path = self.create_build_context(context_path).await?;
-
-        let tar_content = {
-            let mut file = File::open(&tar_path)
-                .await
-                .map_err(|e| DockerError::BuildFailed(format!("Failed to open tarball: {}", e)))?;
-            let mut contents = Vec::new();
-            file.read_to_end(&mut contents)
-                .await
-                .map_err(|e| DockerError::BuildFailed(format!("Failed to read tarball: {}", e)))?;
-            contents
-        };
-
-        // Clean up temp tar file
-        let _ = tokio::fs::remove_file(&tar_path).await;
+        let tar_content = Self::read_tarball_bytes(&tar_path).await?;
 
         let primary_tag = config
             .tags
@@ -91,31 +86,38 @@ impl DockerClient {
         let mut stream = self
             .docker
             .build_image(build_options, None, Some(tar_content.into()));
-
         let mut image_id = String::new();
-        while let Some(result) = stream.next().await {
-            match result {
-                Ok(output) => {
-                    if let Some(stream_msg) = output.stream {
-                        let msg = stream_msg.trim();
-                        if !msg.is_empty() {
-                            on_progress(msg);
+        let build_result = async {
+            while let Some(result) = stream.next().await {
+                match result {
+                    Ok(output) => {
+                        if let Some(stream_msg) = output.stream {
+                            let msg = stream_msg.trim();
+                            if !msg.is_empty() {
+                                on_progress(msg);
+                            }
+                        }
+                        if let Some(aux) = output.aux {
+                            if let Some(id) = aux.id {
+                                image_id = id;
+                            }
+                        }
+                        if let Some(error) = output.error {
+                            return Err(DockerError::BuildFailed(error).into());
                         }
                     }
-                    if let Some(aux) = output.aux {
-                        if let Some(id) = aux.id {
-                            image_id = id;
-                        }
+                    Err(e) => {
+                        return Err(DockerError::BuildFailed(e.to_string()).into());
                     }
-                    if let Some(error) = output.error {
-                        return Err(DockerError::BuildFailed(error).into());
-                    }
-                }
-                Err(e) => {
-                    return Err(DockerError::BuildFailed(e.to_string()).into());
                 }
             }
+            Ok::<(), crate::error::ApiForgError>(())
         }
+        .await;
+
+        // Clean up temp tar file regardless of build outcome.
+        let _ = tokio::fs::remove_file(&tar_path).await;
+        build_result?;
 
         // Tag with additional tags
         for tag in config.tags.iter().skip(1) {
@@ -125,7 +127,39 @@ impl DockerClient {
         Ok(image_id)
     }
 
-    async fn create_build_context(&self, context_path: &Path) -> Result<String> {
+    async fn read_tarball_bytes(tar_path: &Path) -> Result<Vec<u8>> {
+        let tar_path = tar_path.to_path_buf();
+
+        tokio::task::spawn_blocking(move || {
+            use std::io::{BufReader, Read};
+
+            let file = std::fs::File::open(&tar_path).map_err(|e| {
+                DockerError::BuildFailed(format!("Failed to open tarball {:?}: {}", tar_path, e))
+            })?;
+            let size = file.metadata().map(|m| m.len()).unwrap_or(0) as usize;
+
+            let mut reader = BufReader::new(file);
+            let mut bytes = Vec::with_capacity(size);
+            reader.read_to_end(&mut bytes).map_err(|e| {
+                DockerError::BuildFailed(format!("Failed to read tarball {:?}: {}", tar_path, e))
+            })?;
+
+            Ok(bytes)
+        })
+        .await
+        .map_err(|e| DockerError::BuildFailed(format!("Tarball read task join failed: {}", e)))?
+    }
+
+    async fn create_build_context(&self, context_path: &Path) -> Result<PathBuf> {
+        let context_path = context_path.to_path_buf();
+        tokio::task::spawn_blocking(move || Self::create_build_context_sync(&context_path))
+            .await
+            .map_err(|e| {
+                DockerError::BuildFailed(format!("Build context task join failed: {}", e))
+            })?
+    }
+
+    fn create_build_context_sync(context_path: &Path) -> Result<PathBuf> {
         use std::fs::File as StdFile;
         use std::io::BufWriter;
 
@@ -139,19 +173,17 @@ impl DockerClient {
         let mut archive = tar::Builder::new(writer);
 
         // Recursively add all files from context directory
-        self.add_dir_to_tar(&mut archive, context_path, Path::new(""))
-            .await?;
+        Self::add_dir_to_tar(&mut archive, context_path, Path::new(""))?;
 
         archive
             .finish()
             .map_err(|e| DockerError::BuildFailed(format!("Failed to finalize tar: {}", e)))?;
 
-        Ok(tar_path.to_string_lossy().to_string())
+        Ok(tar_path)
     }
 
     /// Recursively adds directory contents to tar archive
-    async fn add_dir_to_tar<W: std::io::Write>(
-        &self,
+    fn add_dir_to_tar<W: std::io::Write>(
         archive: &mut tar::Builder<W>,
         base_path: &Path,
         relative_path: &Path,
@@ -188,7 +220,7 @@ impl DockerClient {
 
             if metadata.is_dir() {
                 // Recursively add directory
-                Box::pin(self.add_dir_to_tar(archive, base_path, &entry_relative)).await?;
+                Self::add_dir_to_tar(archive, base_path, &entry_relative)?;
             } else if metadata.is_file() {
                 // Add file to archive
                 let mut file = std::fs::File::open(&entry_path).map_err(|e| {

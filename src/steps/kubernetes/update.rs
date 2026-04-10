@@ -38,6 +38,23 @@ impl K8sUpdateStep {
 
         Ok(format!("{}:{}", image_base, tag))
     }
+
+    fn get_full_image_dry_run(&self, ctx: &StepContext) -> String {
+        let repo = &ctx.config.docker.repository;
+        let tag = self.version.to_string();
+
+        let image_base = match ctx.config.docker.registry {
+            DockerRegistry::AwsEcr => format!(
+                "<aws-account-id>.dkr.ecr.{}.amazonaws.com/{}",
+                ctx.config.aws.region, repo
+            ),
+            DockerRegistry::DockerHub => repo.clone(),
+            DockerRegistry::Ghcr => format!("ghcr.io/{}", repo),
+            DockerRegistry::Custom => repo.clone(),
+        };
+
+        format!("{}:{}", image_base, tag)
+    }
 }
 
 #[async_trait]
@@ -96,7 +113,7 @@ impl Step for K8sUpdateStep {
     }
 
     async fn dry_run(&self, ctx: &StepContext) -> Result<StepOutput> {
-        let new_image = self.get_full_image(ctx).await?;
+        let new_image = self.get_full_image_dry_run(ctx);
 
         Ok(StepOutput::ok(format!(
             "Would update deployment {} in {} to {}",

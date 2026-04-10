@@ -1,5 +1,5 @@
 use crate::error::{GitError, Result};
-use git2::{BranchType, Cred, ObjectType, PushOptions, RemoteCallbacks, Repository};
+use git2::{BranchType, Cred, FetchOptions, ObjectType, PushOptions, RemoteCallbacks, Repository};
 use std::path::{Path, PathBuf};
 
 pub struct GitRepo {
@@ -11,6 +11,41 @@ pub struct CommitInfo {
     pub message: String,
     pub author: String,
     pub timestamp: i64,
+}
+
+fn build_remote_callbacks<'repo>(repo: &'repo Repository) -> RemoteCallbacks<'repo> {
+    let mut callbacks = RemoteCallbacks::new();
+    callbacks.credentials(move |url, username_from_url, allowed_types| {
+        // Prefer SSH agent credentials when available.
+        if allowed_types.is_ssh_key() {
+            if let Some(username) = username_from_url {
+                if let Ok(cred) = Cred::ssh_key_from_agent(username) {
+                    return Ok(cred);
+                }
+            }
+        }
+
+        // Fallback to git credential helpers (supports HTTPS/token flows on Windows/macOS/Linux).
+        if allowed_types.is_user_pass_plaintext() {
+            if let Ok(config) = repo.config() {
+                if let Ok(cred) = Cred::credential_helper(&config, url, username_from_url) {
+                    return Ok(cred);
+                }
+            }
+        }
+
+        // Username-only credential prompt fallback.
+        if allowed_types.is_username() {
+            if let Some(username) = username_from_url {
+                if let Ok(cred) = Cred::username(username) {
+                    return Ok(cred);
+                }
+            }
+        }
+
+        Cred::default()
+    });
+    callbacks
 }
 
 impl GitRepo {
@@ -63,6 +98,22 @@ impl GitRepo {
         }
 
         Ok(changes)
+    }
+
+    pub fn fetch(&self, remote_name: &str) -> Result<()> {
+        let mut remote = self
+            .repo
+            .find_remote(remote_name)
+            .map_err(|_| GitError::RemoteNotFound(remote_name.to_string()))?;
+
+        let mut fetch_options = FetchOptions::new();
+        fetch_options.remote_callbacks(build_remote_callbacks(&self.repo));
+
+        remote
+            .fetch(&[] as &[&str], Some(&mut fetch_options), None)
+            .map_err(|e| GitError::GitOperation(format!("Failed to fetch from remote: {}", e)))?;
+
+        Ok(())
     }
 
     pub fn check_remote_sync(&self, branch: &str, remote: &str) -> Result<(usize, usize)> {
@@ -246,19 +297,51 @@ impl GitRepo {
             .find_remote(remote)
             .map_err(|_| GitError::RemoteNotFound(remote.to_string()))?;
 
-        let mut callbacks = RemoteCallbacks::new();
-        callbacks.credentials(|_url, username_from_url, _allowed_types| {
-            Cred::ssh_key_from_agent(username_from_url.unwrap_or("git"))
-        });
-
         let mut push_options = PushOptions::new();
-        push_options.remote_callbacks(callbacks);
+        push_options.remote_callbacks(build_remote_callbacks(&self.repo));
 
         remote
             .push(&[refspec], Some(&mut push_options))
             .map_err(|e| GitError::PushFailed(format!("Failed to push: {}", e)))?;
 
         Ok(())
+    }
+
+    /// Push with timeout support - async version that respects GitTimeoutConfig
+    pub async fn push_with_timeout(
+        &self,
+        remote: &str,
+        refspec: &str,
+        timeout_config: &super::GitTimeoutConfig,
+    ) -> Result<()> {
+        use super::push_with_timeout;
+
+        let remote = remote.to_string();
+        let refspec = refspec.to_string();
+
+        // Clone the repository reference for use in the blocking task
+        let repo_path = self.root_path();
+
+        push_with_timeout(
+            move || {
+                let repo = Repository::open(&repo_path)
+                    .map_err(|e| GitError::GitOperation(format!("Failed to open repo: {}", e)))?;
+                let mut remote = repo
+                    .find_remote(&remote)
+                    .map_err(|_| GitError::RemoteNotFound(remote.clone()))?;
+
+                let mut push_options = PushOptions::new();
+                push_options.remote_callbacks(build_remote_callbacks(&repo));
+
+                remote
+                    .push(&[&refspec], Some(&mut push_options))
+                    .map_err(|e| GitError::PushFailed(format!("Failed to push: {}", e)))?;
+
+                Ok(())
+            },
+            timeout_config,
+        )
+        .await
     }
 
     pub fn current_commit_sha(&self) -> Result<String> {
@@ -352,13 +435,8 @@ impl GitRepo {
             .find_remote(remote)
             .map_err(|_| GitError::RemoteNotFound(remote.to_string()))?;
 
-        let mut callbacks = RemoteCallbacks::new();
-        callbacks.credentials(|_url, username_from_url, _allowed_types| {
-            Cred::ssh_key_from_agent(username_from_url.unwrap_or("git"))
-        });
-
         let mut push_options = PushOptions::new();
-        push_options.remote_callbacks(callbacks);
+        push_options.remote_callbacks(build_remote_callbacks(&self.repo));
 
         let refspec = format!(":refs/tags/{}", tag_name);
         remote
@@ -366,6 +444,44 @@ impl GitRepo {
             .map_err(|e| GitError::PushFailed(format!("Failed to delete remote tag: {}", e)))?;
 
         Ok(())
+    }
+
+    /// Delete a remote tag with timeout support
+    pub async fn delete_remote_tag_with_timeout(
+        &self,
+        remote: &str,
+        tag_name: &str,
+        timeout_config: &super::GitTimeoutConfig,
+    ) -> Result<()> {
+        use super::push_with_timeout;
+
+        let remote = remote.to_string();
+        let tag_name = tag_name.to_string();
+        let repo_path = self.root_path();
+
+        push_with_timeout(
+            move || {
+                let repo = Repository::open(&repo_path)
+                    .map_err(|e| GitError::GitOperation(format!("Failed to open repo: {}", e)))?;
+                let mut remote = repo
+                    .find_remote(&remote)
+                    .map_err(|_| GitError::RemoteNotFound(remote.clone()))?;
+
+                let mut push_options = PushOptions::new();
+                push_options.remote_callbacks(build_remote_callbacks(&repo));
+
+                let refspec = format!(":refs/tags/{}", tag_name);
+                remote
+                    .push(&[refspec], Some(&mut push_options))
+                    .map_err(|e| {
+                        GitError::PushFailed(format!("Failed to delete remote tag: {}", e))
+                    })?;
+
+                Ok(())
+            },
+            timeout_config,
+        )
+        .await
     }
 
     /// Get the parent commit of HEAD (for rollback)

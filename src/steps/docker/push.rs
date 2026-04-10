@@ -2,6 +2,7 @@ use crate::config::DockerRegistry;
 use crate::error::{AwsError, Result};
 use crate::integrations::aws::AwsClient;
 use crate::integrations::docker::{DockerClient, PushConfig};
+use crate::integrations::git::GitRepo;
 use crate::steps::{Step, StepContext, StepOutput};
 use async_trait::async_trait;
 use bollard::auth::DockerCredentials;
@@ -23,6 +24,11 @@ impl DockerPushStep {
 
     fn get_image_tags(&self, ctx: &StepContext) -> Vec<String> {
         let version_str = self.version.to_string();
+        let git_sha_full = GitRepo::open()
+            .ok()
+            .and_then(|repo| repo.current_commit_sha().ok())
+            .unwrap_or_else(|| "unknown".to_string());
+        let git_sha = git_sha_full.chars().take(7).collect::<String>();
 
         ctx.config
             .docker
@@ -32,6 +38,9 @@ impl DockerPushStep {
                 t.replace("{version}", &version_str)
                     .replace("{major}", &self.version.major.to_string())
                     .replace("{minor}", &self.version.minor.to_string())
+                    .replace("{patch}", &self.version.patch.to_string())
+                    .replace("{git_sha}", &git_sha)
+                    .replace("{git_sha_full}", &git_sha_full)
             })
             .collect()
     }
@@ -63,6 +72,20 @@ impl DockerPushStep {
             DockerRegistry::DockerHub => Ok((repo.clone(), None)),
             DockerRegistry::Ghcr => Ok((format!("ghcr.io/{}", repo), None)),
             DockerRegistry::Custom => Ok((repo.clone(), None)),
+        }
+    }
+
+    fn get_registry_info_dry_run(&self, ctx: &StepContext) -> String {
+        let repo = &ctx.config.docker.repository;
+
+        match ctx.config.docker.registry {
+            DockerRegistry::AwsEcr => format!(
+                "<aws-account-id>.dkr.ecr.{}.amazonaws.com/{}",
+                ctx.config.aws.region, repo
+            ),
+            DockerRegistry::DockerHub => repo.clone(),
+            DockerRegistry::Ghcr => format!("ghcr.io/{}", repo),
+            DockerRegistry::Custom => repo.clone(),
         }
     }
 
@@ -163,7 +186,7 @@ impl Step for DockerPushStep {
     }
 
     async fn dry_run(&self, ctx: &StepContext) -> Result<StepOutput> {
-        let (full_image_name, _) = self.get_registry_info(ctx).await?;
+        let full_image_name = self.get_registry_info_dry_run(ctx);
         let tags = self.get_image_tags(ctx);
 
         Ok(StepOutput::ok(format!(

@@ -52,13 +52,21 @@ pub fn is_sled_error_retryable(err: &sled::Error) -> bool {
         // I/O errors might be transient
         sled::Error::Io(io_err) => {
             let kind = io_err.kind();
-            matches!(
+            let retryable_kind = matches!(
                 kind,
                 std::io::ErrorKind::Interrupted
                     | std::io::ErrorKind::WouldBlock
                     | std::io::ErrorKind::TimedOut
-                    | std::io::ErrorKind::ResourceBusy
-            )
+                    | std::io::ErrorKind::ConnectionReset
+                    | std::io::ErrorKind::ConnectionAborted
+                    | std::io::ErrorKind::ConnectionRefused
+                    | std::io::ErrorKind::BrokenPipe
+                    | std::io::ErrorKind::UnexpectedEof
+            );
+            let message = io_err.to_string().to_lowercase();
+            retryable_kind
+                || message.contains("resource busy")
+                || message.contains("temporarily unavailable")
         }
         // Collection errors might resolve on retry
         sled::Error::CollectionNotFound(_) => true,
