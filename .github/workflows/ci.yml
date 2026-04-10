@@ -9,6 +9,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   test:
@@ -39,7 +40,7 @@ jobs:
             ${{ runner.os }}-${{ matrix.rust }}-cargo-
 
       - name: Run tests
-        run: cargo test --verbose --all-features
+        run: cargo test --verbose --all-features --locked
 
   clippy:
     name: Clippy
@@ -63,7 +64,7 @@ jobs:
           key: ${{ runner.os }}-clippy-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Run clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: cargo clippy --locked --all-targets --all-features -- -D warnings
 
   fmt:
     name: Rustfmt
@@ -112,7 +113,7 @@ jobs:
           key: ${{ runner.os }}-release-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Build release
-        run: cargo build --release --verbose
+        run: cargo build --release --verbose --locked
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7

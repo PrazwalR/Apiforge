@@ -80,7 +80,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Utilities
-uuid = { version = "1", features = ["v4", "serde"] }
+uuid = { version = "=1.13.1", features = ["v4", "serde"] }
 semver = "1"
 base64 = "0.22"
 which = "6"
@@ -93,7 +93,7 @@ tar = "0.4"
 [dev-dependencies]
 tokio-test = "0.4"
 mockito = "1"
-tempfile = "3"
+tempfile = "=3.14.0"
 assert_cmd = "=2.0.14"
 predicates = "=3.0.4"
 criterion = "0.5"
