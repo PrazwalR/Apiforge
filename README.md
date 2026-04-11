@@ -3,7 +3,7 @@
 > **Production-grade API release automation CLI**.  
 > From merged code to healthy pods in production — one command.
 
-[![Rust](https://img.shields.io/badge/rust-1.91%2B-orange.svg)](https://www.rust-lang.org/)
+[![Rust](https://img.shields.io/badge/rust-1.91.1%2B-orange.svg)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 ---
@@ -51,7 +51,7 @@ The goal is to make releases **repeatable, reviewable, and recoverable**.
 
 ### Prerequisites
 
-- Rust `1.91+` (for building/running from source)
+- Rust `1.91.1+` (for building/running from source)
 - `git`
 - `docker` (if using Docker steps)
 - `kubectl` (if using Kubernetes steps)

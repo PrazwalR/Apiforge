@@ -1,7 +1,7 @@
 # Apiforge CLI Dockerfile
 # Multi-stage build for minimal image size
 
-FROM rust:1.70-slim as builder
+FROM rust:1.91-slim as builder
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \

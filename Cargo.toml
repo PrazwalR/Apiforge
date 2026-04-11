@@ -10,7 +10,7 @@ homepage = "https://github.com/PrazwalR/Apiforge"
 readme = "README.md"
 keywords = ["devops", "deployment", "kubernetes", "docker", "release"]
 categories = ["command-line-utilities", "development-tools"]
-rust-version = "1.91"
+rust-version = "1.91.1"
 
 [[bin]]
 name = "apiforge"
