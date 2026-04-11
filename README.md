@@ -1,872 +1,629 @@
-# Apiforge 🔥
+# Apiforge
 
-> Production-grade API release automation CLI. From merged code to healthy pods in production — one command, zero tribal knowledge required.
+> **Production-grade API release automation CLI**.  
+> From merged code to healthy pods in production — one command.
 
-[![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org/)
+[![Rust](https://img.shields.io/badge/rust-1.91%2B-orange.svg)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-
----
-
-## The Problem
-
-Releasing an API to production typically involves:
-
-1. ✏️ Bumping version numbers in multiple files
-2. 📝 Writing changelog entries manually
-3. 📦 Building Docker images with correct tags
-4. 🔐 Authenticating with container registries (ECR, DockerHub, GHCR)
-5. ⬆️ Pushing images to the registry
-6. ☸️ Updating Kubernetes deployments
-7. ⏳ Waiting for rollouts to complete
-8. 🏥 Running health checks
-9. 🏷️ Creating Git tags and GitHub releases
-10. 📢 Sending notifications to Slack/webhooks
-11. 🔙 Rolling back if anything fails
-
-**This is error-prone, time-consuming, and requires tribal knowledge.**
-
-## The Solution
-
-```bash
-apiforge release patch
-```
-
-**One command. That's it.** Apiforge handles the entire pipeline automatically:
-
-- ✅ Validates your environment before making any changes
-- ✅ Bumps versions in Cargo.toml, package.json, etc.
-- ✅ Generates changelogs from commit messages
-- ✅ Builds, tags, and pushes Docker images
-- ✅ Updates Kubernetes deployments
-- ✅ Monitors rollout progress
-- ✅ Runs health checks
-- ✅ Creates Git tags and GitHub releases
-- ✅ Sends success/failure notifications
-- ✅ **Automatically rolls back on failure**
 
 ---
 
 ## Table of Contents
 
-- [Installation](#installation)
-- [Quick Start](#quick-start)
-- [Commands](#commands)
-- [Configuration](#configuration)
-- [How It Works](#how-it-works)
-- [Supported Integrations](#supported-integrations)
-- [CI/CD Integration](#cicd-integration)
-- [Troubleshooting](#troubleshooting)
-- [Contributing](#contributing)
+1. [What Apiforge does](#what-apiforge-does)
+2. [Installation](#installation)
+3. [Quick start](#quick-start)
+4. [CLI reference](#cli-reference)
+5. [Release pipeline behavior](#release-pipeline-behavior)
+6. [Rollback semantics](#rollback-semantics)
+7. [Configuration reference (`apiforge.toml`)](#configuration-reference-apiforgetoml)
+8. [Template variables](#template-variables)
+9. [CI/CD integration](#cicd-integration)
+10. [Security and reliability model](#security-and-reliability-model)
+11. [Developer guide](#developer-guide)
+12. [Troubleshooting](#troubleshooting)
+13. [Known limitations](#known-limitations)
+14. [Contributing](#contributing)
+15. [License](#license)
+
+---
+
+## What Apiforge does
+
+Apiforge automates a full release path for API services:
+
+1. Preflight checks for repo and environment.
+2. Version bump in language-specific version files.
+3. Optional changelog generation.
+4. Commit and tag creation.
+5. Push to git remote.
+6. Optional Docker build/push.
+7. Optional Kubernetes image update and rollout wait.
+8. Optional GitHub release creation.
+9. Optional health-check verification.
+10. Automatic rollback of completed steps when a later step fails.
+
+The goal is to make releases **repeatable, reviewable, and recoverable**.
 
 ---
 
 ## Installation
 
-### Option 1: Install from Cargo (Recommended for Rust users)
+### Prerequisites
+
+- Rust `1.91+` (for building/running from source)
+- `git`
+- `docker` (if using Docker steps)
+- `kubectl` (if using Kubernetes steps)
+- `aws` CLI credentials/profile (if using ECR)
+
+### Option 1: Install from Cargo
 
 ```bash
 cargo install apiforge
 ```
 
-### Option 2: Download Prebuilt Binary
+### Option 2: Download release archives
 
 ```bash
-# Linux (x86_64)
-curl -L https://github.com/PrazwalR/Apiforge/releases/latest/download/apiforge-linux-x86_64 -o apiforge
+# Linux (x86_64 / amd64)
+curl -L https://github.com/PrazwalR/Apiforge/releases/latest/download/apiforge-linux-amd64.tar.gz -o apiforge.tar.gz
+tar -xzf apiforge.tar.gz
+chmod +x apiforge
+sudo mv apiforge /usr/local/bin/
+
+# Linux (arm64)
+curl -L https://github.com/PrazwalR/Apiforge/releases/latest/download/apiforge-linux-arm64.tar.gz -o apiforge.tar.gz
+tar -xzf apiforge.tar.gz
 chmod +x apiforge
 sudo mv apiforge /usr/local/bin/
 
 # macOS (Apple Silicon)
-curl -L https://github.com/PrazwalR/Apiforge/releases/latest/download/apiforge-darwin-arm64 -o apiforge
+curl -L https://github.com/PrazwalR/Apiforge/releases/latest/download/apiforge-darwin-arm64.tar.gz -o apiforge.tar.gz
+tar -xzf apiforge.tar.gz
 chmod +x apiforge
 sudo mv apiforge /usr/local/bin/
 
-# macOS (Intel)
-curl -L https://github.com/PrazwalR/Apiforge/releases/latest/download/apiforge-darwin-x86_64 -o apiforge
+# macOS (Intel / amd64)
+curl -L https://github.com/PrazwalR/Apiforge/releases/latest/download/apiforge-darwin-amd64.tar.gz -o apiforge.tar.gz
+tar -xzf apiforge.tar.gz
 chmod +x apiforge
 sudo mv apiforge /usr/local/bin/
 ```
 
-### Option 3: Build from Source
+Windows artifact is published as `apiforge-windows-amd64.zip`.
+
+### Option 3: Build from source
 
 ```bash
 git clone https://github.com/PrazwalR/Apiforge.git
 cd Apiforge
-cargo build --release
-sudo cp target/release/apiforge /usr/local/bin/
-```
-
-### Verify Installation
-
-```bash
-apiforge --version
-# apiforge 0.2.0
+cargo build --release --locked
+./target/release/apiforge --version
 ```
 
 ---
 
-## Quick Start
+## Quick start
 
-### 1. Initialize Configuration
+### 1. Initialize config
 
 ```bash
-cd your-api-project
 apiforge init
 ```
 
-This creates `apiforge.toml` with sensible defaults based on your project.
+This creates `apiforge.toml` with defaults.
 
-### 2. Validate Your Environment
+### 2. Validate setup
 
 ```bash
 apiforge doctor
 ```
 
-Output:
-```
-▸ Checking dependencies
-  ✓ git (2.39.0)
-  ✓ docker (24.0.5)
-  ✓ kubectl (1.28.0)
-
-▸ Checking configuration
-  ✓ apiforge.toml found
-  ✓ Dockerfile exists
-  ✓ Kubernetes context 'prod' available
-
-▸ Checking connectivity
-  ✓ Docker daemon accessible
-  ✓ Kubernetes cluster reachable
-  ✓ AWS credentials valid
-
-✓ All checks passed! Ready to release.
-```
-
-### 3. Preview a Release (Dry Run)
+### 3. Preview a release (no side effects)
 
 ```bash
 apiforge release patch --dry-run
 ```
 
-This shows exactly what will happen without making any changes.
-
-### 4. Execute the Release
+### 4. Execute release
 
 ```bash
 apiforge release patch
 ```
 
-Output:
-```
-▸ Pre-flight checks
-  ✓ git-preflight
-  ✓ version-bump
-  ✓ docker-build
-  ✓ k8s-update
+### 5. Inspect history and status
 
-▸ Executing release pipeline
-  ✓ git-preflight         Repository clean, on main branch (12ms)
-  ✓ version-bump          Bumped version from 1.2.3 to 1.2.4 (5ms)
-  ✓ changelog             Generated changelog with 3 commits (8ms)
-  ✓ git-commit            Committed: Release v1.2.4 (15ms)
-  ✓ git-tag               Created tag v1.2.4 (3ms)
-  ✓ docker-build          Built image sha256:abc123 with tags: 1.2.4, latest (45s)
-  ✓ docker-push           Pushed 123456789.dkr.ecr.us-east-1.amazonaws.com/my-api:1.2.4 (12s)
-  ✓ git-push              Pushed to origin/main (2s)
-  ✓ k8s-update            Updated deployment api-server container 'api' to 1.2.4 (1s)
-  ✓ k8s-rollout           Rollout complete: 3/3 replicas ready (25s)
-  ✓ health-check          Health check passed: https://api.example.com/health (500ms)
-  ✓ github-release        Created release v1.2.4 (800ms)
-
-✨ Release 1.2.4 complete!
-   12 steps executed successfully
+```bash
+apiforge history --limit 20
+apiforge status
 ```
 
 ---
 
-## Commands
+## CLI reference
+
+Global flags:
+
+- `--config <path>`: config file path (default: `apiforge.toml`)
+- `--debug`: enable debug logs (`APIFORGE_DEBUG=true` also works)
 
 ### `apiforge init`
 
-Generates a configuration file for your project.
+Initializes a new config file.
 
 ```bash
-apiforge init
+apiforge init [--name my-service] [--force]
 ```
-
-Detects your project type (Rust, Node.js, Python, Go, Java) and creates appropriate defaults.
 
 ### `apiforge doctor`
 
-Validates your environment and configuration.
+Checks:
+
+- required tools (`git`, `docker`, `kubectl`, `aws`)
+- config file parse/validation
+- repository visibility/basic git status
 
 ```bash
 apiforge doctor
 ```
 
-Checks:
-- Required CLI tools (git, docker, kubectl)
-- Configuration file validity
-- Docker daemon connectivity
-- Kubernetes cluster access
-- AWS/GitHub credentials
+### `apiforge release <major|minor|patch>`
 
-### `apiforge release <bump>`
-
-Executes the full release pipeline.
+Runs the release pipeline.
 
 ```bash
-# Patch release (1.2.3 → 1.2.4)
-apiforge release patch
-
-# Minor release (1.2.3 → 1.3.0)
-apiforge release minor
-
-# Major release (1.2.3 → 2.0.0)
-apiforge release major
+apiforge release patch \
+  --dry-run \
+  --skip-docker \
+  --skip-k8s \
+  --skip-github \
+  --skip-notify \
+  --no-changelog \
+  --output json \
+  --yes
 ```
 
-**Options:**
+Flags:
 
-| Flag | Description |
-|------|-------------|
-| `--dry-run` | Preview without making changes |
-| `--skip-docker` | Skip Docker build and push |
-| `--skip-k8s` | Skip Kubernetes deployment |
-| `--skip-github` | Skip GitHub release creation |
-| `--skip-notify` | Skip notifications |
-| `--no-changelog` | Skip changelog generation |
-| `--output json` | Output results as JSON |
+| Flag | Meaning |
+|---|---|
+| `--dry-run` | Simulate pipeline steps without mutating systems |
+| `--skip-docker` | Skip Docker build and push steps |
+| `--skip-k8s` | Skip Kubernetes update and rollout wait |
+| `--skip-github` | Skip GitHub release step |
+| `--skip-notify` | Skip post-release notification dispatch |
+| `--no-changelog` | Skip changelog step even if enabled in config |
+| `--output text|json` | Output mode |
 | `-y, --yes` | Skip confirmation prompt |
 
 ### `apiforge rollback`
 
-Roll back to a previous version.
+Rolls Kubernetes deployment image back to a target version.
 
 ```bash
-# Roll back to previous version (auto-detect)
-apiforge rollback
-
-# Roll back to specific version
 apiforge rollback --to v1.2.3
-
-# Preview rollback
-apiforge rollback --dry-run
+apiforge rollback --to v1.2.3 --dry-run
 ```
 
 ### `apiforge history`
 
-View release history.
+Reads audit records from `.apiforge/audit`.
 
 ```bash
-# Show recent releases
-apiforge history
-
-# Limit results
-apiforge history --limit 5
-
-# Filter by status
-apiforge history --filter success
-apiforge history --filter failed
-
-# JSON output
+apiforge history --limit 50 --filter success --output text
 apiforge history --output json
 ```
 
 ### `apiforge status`
 
-Show current deployment status.
+Shows project metadata, git HEAD/tag, and Kubernetes deployment image/replica state.
 
 ```bash
 apiforge status
 ```
 
-Output:
-```
-▸ Current State
-  Project: my-api
-  Language: rust
-  Current Version: 1.2.4
-  Git Branch: main
-  Kubernetes Context: prod-cluster
+---
 
-▸ Deployment Status
-  Namespace: production
-  Deployment: api-server
-  Ready: 3/3 replicas
-  Image: 123456789.dkr.ecr.us-east-1.amazonaws.com/my-api:1.2.4
-```
+## Release pipeline behavior
+
+When you run `apiforge release <bump>`, step order is:
+
+1. `git-preflight`
+2. `version-bump`
+3. `changelog` *(if enabled and not skipped)*
+4. `git-commit`
+5. `git-tag`
+6. `git-push`
+7. `docker-build` *(if not skipped)*
+8. `docker-push` *(if not skipped)*
+9. `k8s-update` *(if not skipped)*
+10. `k8s-rollout` *(if not skipped)*
+11. `github-release` *(if configured and not skipped)*
+12. `health-check` *(if configured)*
+
+On success, Apiforge can send notification(s) and records a release audit entry.
 
 ---
 
-## Configuration
+## Rollback semantics
 
-Apiforge uses `apiforge.toml` in your project root.
+Automatic rollback is triggered when a step fails after prior steps succeeded. Rollback runs in **reverse order** for completed steps.
 
-### Full Configuration Reference
+| Step | Rollback behavior |
+|---|---|
+| `version-bump` | Restores original version-file content captured before mutation |
+| `changelog` | Restores `CHANGELOG.md` from git checkout |
+| `git-commit` | Soft reset to parent commit (changes remain staged) |
+| `git-tag` | Deletes created tag |
+| `git-push` | Deletes remote/local tag; intentionally does **not** force-rewrite shared commit history |
+| `github-release` | Deletes created GitHub release when possible |
+| docker/k8s/health | Step-specific best-effort behavior or no-op if not applicable |
+
+Important design choice: on git-push rollback, commit history is preserved and only release marker tags are removed.
+
+---
+
+## Configuration reference (`apiforge.toml`)
+
+### Full example
 
 ```toml
-# Project metadata
 [project]
 name = "my-api"
-language = "rust"  # rust, node, python, go, java
+language = "rust" # rust | node | python | go | java
 
-# Git configuration
 [git]
-require_clean = true           # Require clean working tree
-require_main_branch = true     # Only release from main/master
-main_branch = "main"           # Name of main branch
-remote = "origin"              # Remote to push tags/commits to
-tag_format = "v{version}"      # Tag format ({version} is replaced)
-changelog = true               # Generate changelog
-commit_message = "Release v{{ version }}"
-fetch_timeout_secs = 60        # Timeout for git fetch (seconds)
-push_timeout_secs = 120        # Timeout for git push (seconds)
-operation_timeout_secs = 30    # Timeout for other git ops (seconds)
+main_branch = "main"
+tag_format = "v{version}"
+changelog = true
+commit_message = "chore: release v{{ version }}"
+remote = "origin"
+require_clean = true
+require_main_branch = true
+fetch_timeout_secs = 60
+push_timeout_secs = 120
+operation_timeout_secs = 30
 
-# Docker configuration
 [docker]
-registry = "aws-ecr"           # aws-ecr, dockerhub, ghcr, custom
-repository = "my-api"          # Repository name
-dockerfile = "Dockerfile"      # Dockerfile path
-context = "."                  # Build context
-tags = ["{version}", "latest"] # Tag patterns
+registry = "aws_ecr" # aws_ecr | docker_hub | ghcr | custom
+repository = "my-api"
+dockerfile = "Dockerfile"
+context = "."
+tags = ["{version}", "{major}.{minor}", "latest", "{git_sha}"]
+# build_args = { APP_ENV = "production" }
 
-# Optional: Build arguments
-[docker.build_args]
-NODE_ENV = "production"
-BUILD_DATE = "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+[kubernetes]
+context = "production"
+namespace = "default"
+deployment = "my-api"
+manifest_path = "k8s/deployment.yaml"
+image_field = ".spec.template.spec.containers[0].image"
+rollout_timeout = 300
+min_ready_percent = 100
 
-# AWS configuration (for ECR)
 [aws]
 region = "us-east-1"
-# profile = "production"       # Optional: AWS profile
+# profile = "prod"
 
-# Kubernetes configuration
-[kubernetes]
-context = "prod-cluster"       # kubectl context name
-namespace = "production"       # Target namespace
-deployment = "api-server"      # Deployment name
-image_field = "api"            # Container name or index ("0", "api", "sidecar")
-rollout_timeout = 300          # Seconds to wait for rollout
-min_ready_percent = 100        # Minimum ready replicas percentage
-
-# GitHub configuration (optional)
 [github]
-token = "${GITHUB_TOKEN}"      # Environment variable reference
+repository = "org/repo"
+token = "${GITHUB_TOKEN}"
 create_release = true
 prerelease = false
 draft = false
-generate_notes = true          # Auto-generate release notes
 
-# Health check (optional)
+[notifications.slack]
+webhook_url = "${SLACK_WEBHOOK_URL}"
+message = "{{ status_emoji }} Release {{ version }} of {{ project }}: {{ status }}"
+notify_on = "both" # success | failure | both
+
+# Optional generic webhook payload
+# [notifications.webhook]
+# url = "https://hooks.example.com/release"
+# method = "POST"
+# headers = { "Authorization" = "Bearer ${WEBHOOK_TOKEN}" }
+# body = "{\"project\":\"{{ project }}\",\"version\":\"{{ version }}\",\"status\":\"{{ status }}\"}"
+
 [health_check]
 url = "https://api.example.com/health"
-method = "GET"
+method = "GET" # GET | POST | HEAD | PUT
 expected_status = 200
-timeout = 60                   # Seconds
-interval = 5                   # Check interval
-# expected_body_field = "status"
-# expected_body_value = "healthy"
-
-# Notifications (optional)
-[notifications.slack]
-webhook_url = "${SLACK_WEBHOOK_URL}"
-channel = "#releases"
-message = "🚀 {{ project }} {{ version }} released! {{ status_emoji }}"
+# expected_body_field = "/status"
+# expected_body_value = "ok"
+timeout = 60
+interval = 5
 ```
 
-### Environment Variables
+### Field details
 
-Sensitive values can be referenced using `${VAR_NAME}` syntax:
+#### `[project]`
 
-```toml
-[github]
-token = "${GITHUB_TOKEN}"
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `name` | string | yes | Displayed in output/messages |
+| `language` | enum | yes | Determines version file (`Cargo.toml`, `package.json`, `pyproject.toml`, `go.mod`, `pom.xml`) |
 
-[notifications.slack]
-webhook_url = "${SLACK_WEBHOOK_URL}"
-```
+#### `[git]`
 
-### Configuration Examples
+| Key | Type | Default | Notes |
+|---|---|---|---|
+| `main_branch` | string | none | Expected release branch |
+| `tag_format` | string | none | Must include `{version}` |
+| `changelog` | bool | `true` | Enable changelog step |
+| `commit_message` | string | none | Supports `{{ version }}` / `{{ project }}` |
+| `remote` | string | `origin` | Target remote |
+| `require_clean` | bool | `true` | Require no unstaged/uncommitted changes |
+| `require_main_branch` | bool | `true` | Require release from `main_branch` |
+| `fetch_timeout_secs` | u64 | `60` | Timeout for fetch-like operations |
+| `push_timeout_secs` | u64 | `120` | Timeout for push operations |
+| `operation_timeout_secs` | u64 | `30` | Timeout for other git operations |
 
-Ready-to-copy files are available in:
-- `examples/rust-ecr-k8s.apiforge.toml`
-- `examples/node-ghcr.apiforge.toml`
+#### `[docker]`
 
-#### Rust service on ECR + Kubernetes
+| Key | Type | Default | Notes |
+|---|---|---|---|
+| `registry` | enum | none | `aws_ecr`, `docker_hub`, `ghcr`, `custom` |
+| `repository` | string | none | Required non-empty |
+| `dockerfile` | string | `Dockerfile` | Relative to `context` |
+| `context` | string | `.` | Build context path |
+| `tags` | array<string> | none | At least one tag pattern required |
+| `build_args` | table | none | Optional build args |
 
-```toml
-[project]
-name = "payments-api"
-language = "rust"
+Docker tag placeholders supported by validation/runtime:
 
-[git]
-main_branch = "main"
-remote = "origin"
-tag_format = "v{version}"
-commit_message = "chore: release v{{ version }}"
-require_clean = true
-require_main_branch = true
-fetch_timeout_secs = 60
-push_timeout_secs = 120
-operation_timeout_secs = 30
+- `{version}`
+- `{major}`
+- `{minor}`
+- `{patch}`
+- `{git_sha}`
+- `{git_sha_full}`
 
-[docker]
-registry = "aws_ecr"
-repository = "payments-api"
-tags = ["{version}", "latest"]
+#### `[kubernetes]`
 
-[aws]
-region = "us-east-1"
+| Key | Type | Default | Notes |
+|---|---|---|---|
+| `context` | string | none | kube context name |
+| `namespace` | string | none | Required non-empty |
+| `deployment` | string | none | Deployment to patch |
+| `manifest_path` | string | none | Maintained for manifest-oriented workflows |
+| `image_field` | string | none | JSON pointer-like selector for image path |
+| `rollout_timeout` | u64 | `300` | Max seconds for rollout wait |
+| `min_ready_percent` | u8 | `100` | Must be `0..=100` |
 
-[kubernetes]
-context = "prod-cluster"
-namespace = "payments"
-deployment = "payments-api"
-image_field = "payments-api"
-rollout_timeout = 300
-min_ready_percent = 100
-```
+#### `[aws]`
 
-#### Node service on GHCR (no Kubernetes)
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `region` | string | yes for ECR | Required when `docker.registry = "aws_ecr"` |
+| `profile` | string | no | Optional AWS profile |
 
-```toml
-[project]
-name = "webhook-gateway"
-language = "node"
+#### `[github]` *(optional)*
 
-[git]
-main_branch = "main"
-remote = "origin"
-tag_format = "v{version}"
-commit_message = "release: {{ version }}"
-require_clean = true
-require_main_branch = true
-fetch_timeout_secs = 60
-push_timeout_secs = 120
-operation_timeout_secs = 30
+| Key | Type | Default | Notes |
+|---|---|---|---|
+| `repository` | string | none | `owner/repo` |
+| `token` | string | none | GitHub token |
+| `create_release` | bool | `true` | Kept for compatibility |
+| `prerelease` | bool | `false` | GitHub prerelease flag |
+| `draft` | bool | `false` | GitHub draft flag |
 
-[docker]
-registry = "ghcr"
-repository = "my-org/webhook-gateway"
-tags = ["{version}", "latest", "sha-{git_sha}"]
+#### `[notifications]` *(optional)*
 
-[kubernetes]
-context = "unused"
-namespace = "unused"
-deployment = "unused"
-manifest_path = "k8s/deployment.yaml"
-image_field = "app"
-rollout_timeout = 300
-min_ready_percent = 100
+Slack:
 
-[aws]
-region = "us-east-1"
+| Key | Type | Default |
+|---|---|---|
+| `webhook_url` | string | none |
+| `message` | string | none |
+| `notify_on` | enum | `both` |
 
-[github]
-repository = "my-org/webhook-gateway"
-token = "${GITHUB_TOKEN}"
-create_release = true
-prerelease = false
-draft = false
-```
+Webhook:
 
-### Template Variables
+| Key | Type | Default |
+|---|---|---|
+| `url` | string | none |
+| `method` | string | `POST` |
+| `headers` | table | none |
+| `body` | string | none |
 
-Apiforge supports template variables using `{{ variable }}` syntax in various configuration fields. These are dynamically replaced at runtime.
+#### `[health_check]` *(optional)*
 
-| Variable | Description | Example Value |
-|----------|-------------|---------------|
-| `{{ version }}` | Current release version | `1.2.4` |
-| `{{ project }}` | Project name from config | `my-api` |
-| `{{ previous_version }}` | Version before bump | `1.2.3` |
-| `{{ date }}` | Release date (ISO format) | `2024-01-15` |
-| `{{ timestamp }}` | Unix timestamp | `1705334400` |
-| `{{ git_sha }}` | Current commit SHA (short) | `a1b2c3d` |
-| `{{ git_sha_full }}` | Full commit SHA | `a1b2c3d4e5f6...` |
-| `{{ branch }}` | Current Git branch | `main` |
-| `{{ status_emoji }}` | Success/failure emoji | `✅` or `❌` |
-
-**Where templates are supported:**
-
-| Config Field | Example |
-|--------------|---------|
-| `git.tag_format` | `"v{{ version }}"` → `v1.2.4` |
-| `git.commit_message` | `"Release v{{ version }}"` |
-| `docker.tags` | `["{{ version }}", "latest"]` |
-| `health_check.url` | `"https://api.example.com/v{{ version }}/health"` |
-| `notifications.slack.message` | `"🚀 {{ project }} {{ version }} deployed!"` |
+| Key | Type | Default | Notes |
+|---|---|---|---|
+| `url` | string | none | Required if section present |
+| `method` | enum | `GET` | `GET`, `POST`, `HEAD`, `PUT` |
+| `expected_status` | u16 | `200` | Expected HTTP status |
+| `expected_body_field` | string | none | JSON pointer path (e.g. `/status`) |
+| `expected_body_value` | string | none | Compared against resolved response field |
+| `timeout` | u64 | `60` | Total check window |
+| `interval` | u64 | `5` | Retry interval, must be `> 0` |
 
 ---
 
-## How It Works
+## Template variables
 
-### Release Pipeline
+Apiforge uses templates in multiple places. Available keys depend on context:
 
-When you run `apiforge release patch`, the following steps execute in order:
+### Commit message templates (`git.commit_message`)
 
-```
-┌─────────────────┐
-│  Pre-flight     │ ← Validates all steps before executing
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  Git Preflight  │ ← Checks clean tree, correct branch
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  Version Bump   │ ← Updates Cargo.toml/package.json
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  Changelog      │ ← Generates CHANGELOG.md from commits
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  Git Commit     │ ← Commits version + changelog
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  Git Tag        │ ← Creates version tag (e.g., v1.2.4)
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  Docker Build   │ ← Builds image with version tags
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  Docker Push    │ ← Pushes to registry (ECR/DockerHub/GHCR)
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  Git Push       │ ← Pushes commit and tag to remote
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  K8s Update     │ ← Patches deployment with new image
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  K8s Rollout    │ ← Waits for rollout to complete
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  Health Check   │ ← Verifies API is healthy
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  GitHub Release │ ← Creates GitHub release with notes
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  Notifications  │ ← Sends Slack/webhook notifications
-└─────────────────┘
-```
+- `{{ version }}`
+- `{{ project }}`
 
-### Automatic Rollback
+### Docker tag templates (`docker.tags`)
 
-**If any step fails, Apiforge automatically rolls back completed steps in reverse order:**
+- `{version}`, `{major}`, `{minor}`, `{patch}`, `{git_sha}`, `{git_sha_full}`
 
-```
-Step 7 (K8s Update) FAILED!
+### Notification templates (message/body)
 
-▸ Rolling back completed steps
-  ✓ git-push (rolled back)       ← Deletes remote tag (preserves commit)
-  ✓ git-tag (rolled back)        ← Deletes local tag
-  ✓ git-commit (rolled back)     ← Resets to previous commit
-  ✓ changelog (rolled back)      ← Restores original file
-  ✓ version-bump (rolled back)   ← Restores original version
+Commonly provided:
 
-✗ Release failed. All changes have been rolled back.
-```
+- `{{ version }}`
+- `{{ project }}`
+- `{{ status }}`
+- `{{ status_emoji }}`
 
-This ensures your repository and infrastructure never end up in an inconsistent state.
+### Health-check templates (`health_check.url`, `expected_body_value`)
 
-### Auto-Created Resources
-
-**ECR Repositories**: If your ECR repository doesn't exist, Apiforge automatically creates it with scan-on-push enabled before pushing images. No manual setup required!
+- `{{ version }}`
+- `{{ project }}`
 
 ---
 
-## Supported Integrations
+## CI/CD integration
 
-### Container Registries
-
-| Registry | Config Value | Authentication |
-|----------|--------------|----------------|
-| AWS ECR | `aws-ecr` | AWS credentials (env/profile/IAM role) |
-| Docker Hub | `dockerhub` | `DOCKER_USERNAME` + `DOCKER_PASSWORD` |
-| GitHub Container Registry | `ghcr` | `GITHUB_TOKEN` |
-| Custom Registry | `custom` | Docker config.json |
-
-### Languages
-
-| Language | Version File | Detection |
-|----------|-------------|-----------|
-| Rust | `Cargo.toml` | `package.version` |
-| Node.js | `package.json` | `version` |
-| Python | `pyproject.toml` | `tool.poetry.version` or `project.version` |
-| Go | `go.mod` / `version.go` | Module comment or `Version` constant |
-| Java | `pom.xml` | `project.version` |
-
-### Kubernetes
-
-- **Deployments**: Update container images
-- **Rollout monitoring**: Wait for ready replicas
-- **Automatic rollback**: Uses revision history
-
-### Notifications
-
-| Service | Configuration |
-|---------|--------------|
-| Slack | Webhook URL + message template |
-| Custom Webhook | Any HTTP endpoint |
-
----
-
-## CI/CD Integration
-
-### GitHub Actions
+### GitHub Actions (example)
 
 ```yaml
-name: Release
+name: Release via Apiforge
 
 on:
   workflow_dispatch:
     inputs:
       bump:
-        description: 'Version bump type'
+        description: "Version bump type"
         required: true
+        default: "patch"
         type: choice
-        options:
-          - patch
-          - minor
-          - major
+        options: [patch, minor, major]
 
 jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0  # Full history for changelog
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
-
-      - name: Setup kubectl
-        uses: azure/setup-kubectl@v3
-
-      - name: Configure kubeconfig
-        run: |
-          aws eks update-kubeconfig --name my-cluster --region us-east-1
+      - uses: actions/checkout@v6
 
       - name: Install Apiforge
         run: |
-          curl -L https://github.com/PrazwalR/Apiforge/releases/latest/download/apiforge-linux-x86_64 -o apiforge
+          curl -L https://github.com/PrazwalR/Apiforge/releases/latest/download/apiforge-linux-amd64.tar.gz -o apiforge.tar.gz
+          tar -xzf apiforge.tar.gz
           chmod +x apiforge
           sudo mv apiforge /usr/local/bin/
 
-      - name: Release
+      - name: Run release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-        run: |
-          apiforge release ${{ inputs.bump }} --yes
+        run: apiforge release ${{ inputs.bump }} --yes
 ```
 
-### GitLab CI
+---
 
-```yaml
-release:
-  stage: deploy
-  image: rust:latest
-  before_script:
-    - cargo install apiforge
-    - aws eks update-kubeconfig --name my-cluster
-  script:
-    - apiforge release patch --yes
-  only:
-    - main
-  when: manual
+## Security and reliability model
+
+### Built-in protections
+
+- Config validation before release execution.
+- Timeout wrappers around network-prone git operations.
+- Automatic rollback orchestration for completed steps.
+- Sanitization of sensitive data in rendered/logged error messages.
+- Audit log persistence under `.apiforge/audit`.
+
+### Audit storage
+
+- Location: `.apiforge/audit`
+- Retention: bounded record count
+- Supports compaction and retry-aware writes
+
+### Vulnerability scanning
+
+Use:
+
+```bash
+cargo audit
+```
+
+If advisories are intentionally suppressed due transitive ecosystem constraints, they are documented in `.cargo/audit.toml`.
+
+---
+
+## Developer guide
+
+### Repository structure
+
+```text
+src/
+  cli.rs                 # CLI definition
+  config.rs              # Config model + validation
+  orchestrator/          # Pipeline execution + rollback orchestration
+  steps/                 # Concrete step implementations
+    git/
+    docker/
+    kubernetes/
+    github/
+    health/
+  integrations/          # Service clients (git, docker, k8s, aws, github)
+  audit/                 # Release history store
+  output/                # CLI output rendering
+  utils/                 # Helpers (semver/template/retry/sanitize/version)
+```
+
+### Local quality gates
+
+```bash
+cargo fmt --all -- --check
+cargo test --all-features --locked
+cargo clippy --locked --all-targets --all-features -- -D warnings
+cargo build --release --locked
+cargo doc --no-deps --locked
+cargo bench --no-run --locked
+cargo audit
 ```
 
 ---
 
 ## Troubleshooting
 
-### "Docker daemon not accessible"
+### `git.tag_format must contain {version}`
 
-```bash
-# Check Docker is running
-docker ps
+Your `[git].tag_format` is invalid. Use a format like:
 
-# If using Docker Desktop, ensure it's started
-# If using Linux, check the socket
-sudo systemctl status docker
+```toml
+tag_format = "v{version}"
 ```
 
-### "Kubernetes context not found"
+### Health-check never succeeds
+
+Check:
+
+1. endpoint URL and network reachability
+2. method (`GET`/`POST`/`HEAD`/`PUT`)
+3. expected status code
+4. optional JSON pointer/value match
+5. timeout/interval values
+
+### ECR or AWS auth issues
+
+Verify:
+
+- correct `aws.region`
+- IAM credentials/profile
+- ability to call STS/ECR
+
+### Kubernetes rollout timeout
+
+Check deployment events and image pull/access:
 
 ```bash
-# List available contexts
-kubectl config get-contexts
-
-# Set the correct context in apiforge.toml
-[kubernetes]
-context = "your-context-name"
-```
-
-### "AWS credentials invalid"
-
-```bash
-# Check AWS credentials
-aws sts get-caller-identity
-
-# If using profiles, set in config
-[aws]
-profile = "your-profile"
-```
-
-### "Tag already exists"
-
-Apiforge validates that the version tag doesn't exist before creating it. If you see this error:
-
-```bash
-# Either bump to a new version
-apiforge release minor
-
-# Or delete the existing tag (use with caution!)
-git tag -d v1.2.4
-git push origin :refs/tags/v1.2.4
-```
-
-### "Rollout timeout"
-
-```bash
-# Check pod status
-kubectl get pods -n your-namespace
-
-# Check events
-kubectl describe deployment your-deployment -n your-namespace
-
-# Increase timeout in config
-[kubernetes]
-rollout_timeout = 600  # 10 minutes
+kubectl -n <namespace> describe deploy <name>
+kubectl -n <namespace> get pods
+kubectl -n <namespace> logs <pod>
 ```
 
 ---
 
-## Architecture
+## Known limitations
 
-```
-apiforge/
-├── src/
-│   ├── main.rs              # CLI entry point
-│   ├── cli.rs               # Command definitions (clap)
-│   ├── config.rs            # Configuration parsing
-│   ├── error.rs             # Error types
-│   │
-│   ├── integrations/        # External service clients
-│   │   ├── aws.rs           # AWS ECR authentication
-│   │   ├── docker.rs        # Docker build/push (bollard)
-│   │   ├── git/             # Git operations (git2)
-│   │   ├── github.rs        # GitHub releases (octocrab)
-│   │   └── kubernetes.rs    # K8s deployments (kube-rs)
-│   │
-│   ├── steps/               # Pipeline steps
-│   │   ├── mod.rs           # Step trait definition
-│   │   ├── docker/          # Docker build/push steps
-│   │   ├── git/             # Git operations steps
-│   │   ├── github/          # GitHub release step
-│   │   ├── health/          # Health check step
-│   │   ├── kubernetes/      # K8s update/rollout steps
-│   │   └── notify/          # Notification steps
-│   │
-│   ├── orchestrator/        # Pipeline execution engine
-│   ├── audit/               # Release history tracking
-│   ├── output/              # Colored terminal output
-│   └── utils/               # Version parsing, templates
-│
-├── apiforge.toml            # Example configuration
-├── Cargo.toml               # Rust dependencies
-└── README.md                # This file
-```
+- `apiforge rollback` currently requires explicit `--to <version>`; automatic rollback-target detection is not implemented yet.
+- Git push rollback intentionally avoids force-rewriting remote commit history; it removes release tags instead.
 
 ---
 
 ## Contributing
 
-Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md) first.
-
-### Development Setup
-
-```bash
-# Clone the repository
-git clone https://github.com/PrazwalR/Apiforge.git
-cd Apiforge
-
-# Build
-cargo build
-
-# Run tests
-cargo test
-
-# Run lints
-cargo clippy
-
-# Format code
-cargo fmt
-
-# Compile and run performance benchmarks
-cargo bench --bench performance
-```
-
-### Running Locally
-
-```bash
-# Run without installing
-cargo run -- doctor
-cargo run -- release patch --dry-run
-```
+See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
-
----
-
-## Acknowledgments
-
-Built with:
-- [clap](https://github.com/clap-rs/clap) - Command line argument parsing
-- [bollard](https://github.com/fussybeaver/bollard) - Docker API client
-- [kube-rs](https://github.com/kube-rs/kube) - Kubernetes client
-- [octocrab](https://github.com/XAMPPRocky/octocrab) - GitHub API client
-- [git2](https://github.com/rust-lang/git2-rs) - Git operations
-
----
-
-<p align="center">
-  Made with ❤️ for DevOps engineers tired of manual releases
-</p>
+MIT — see [LICENSE](LICENSE).

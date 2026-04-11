@@ -1,6 +1,5 @@
 # Rust
 /target/
-/demo-api/
 # Cargo.lock tracked for binary app (needed for security audit)
 **/*.rs.bk
 *.pdb
