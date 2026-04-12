@@ -71,17 +71,8 @@ jobs:
           sudo apt-get install -y --no-install-recommends pkg-config libssl-dev
           sudo rm -rf /var/lib/apt/lists/*
 
-      - name: Install cross (Linux ARM64)
-        if: matrix.cross
-        run: cargo install cross --locked
-
-      - name: Build (native)
-        if: "!matrix.cross"
+      - name: Build
         run: cargo build --release --target ${{ matrix.target }} --locked
-
-      - name: Build (cross)
-        if: matrix.cross
-        run: cross build --release --target ${{ matrix.target }} --locked
 
       - name: Create archive (Unix)
         if: runner.os != 'Windows'
