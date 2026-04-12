@@ -44,11 +44,11 @@ jobs:
             artifact: apiforge-linux-arm64
             binary: apiforge
             cross: true
-          - os: macos-latest
+          - os: macos-13
             target: x86_64-apple-darwin
             artifact: apiforge-darwin-amd64
             binary: apiforge
-          - os: macos-latest
+          - os: macos-14
             target: aarch64-apple-darwin
             artifact: apiforge-darwin-arm64
             binary: apiforge
