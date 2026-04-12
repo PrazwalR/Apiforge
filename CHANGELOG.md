@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.3] - 2026-04-12
+
+### Fixed
+- Release workflow now uses `macos-latest` for both macOS targets to avoid unavailable `macos-13` runner cancellations.
+- macOS release builds now install OpenSSL and pkg-config before compiling to prevent `openssl-sys` detection failures.
+
 ## [0.2.2] - 2026-04-12
 
 ### Fixed
