@@ -39,11 +39,10 @@ jobs:
             target: x86_64-unknown-linux-gnu
             artifact: apiforge-linux-amd64
             binary: apiforge
-          - os: ubuntu-latest
+          - os: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
             artifact: apiforge-linux-arm64
             binary: apiforge
-            cross: true
           - os: macos-13
             target: x86_64-apple-darwin
             artifact: apiforge-darwin-amd64
@@ -64,6 +63,13 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends pkg-config libssl-dev
+          sudo rm -rf /var/lib/apt/lists/*
 
       - name: Install cross (Linux ARM64)
         if: matrix.cross
