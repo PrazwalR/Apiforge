@@ -10,4 +10,6 @@ ignore = [
     "RUSTSEC-2025-0119", # number_prefix (unmaintained)
     # Transitive dependency in hyper-rustls 0.24.x.
     "RUSTSEC-2025-0134", # rustls-pemfile (unmaintained)
+    # Transitive dependency through tera, mockito, kube-runtime (rand 0.8.5 unsound).
+    "RUSTSEC-2026-0097", # rand (unsound with custom logger)
 ]

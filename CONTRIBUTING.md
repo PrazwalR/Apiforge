@@ -6,7 +6,7 @@ Thank you for your interest in contributing to Apiforge! This document provides 
 
 ### Prerequisites
 
-- Rust 1.91.1 or later
+- Rust 1.70.0 or later
 - Docker (for building and testing container features)
 - kubectl and a Kubernetes cluster (for testing K8s features)
 - AWS CLI (optional, for ECR features)
