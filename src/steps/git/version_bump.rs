@@ -242,11 +242,43 @@ impl Step for VersionBumpStep {
         let path = self.get_version_file_path(ctx)?;
         let current = read_version(ctx.config.project.language, &path)?;
         let new_version = bump_version(&current, self.bump_type)?;
+        let new_version_str = new_version.to_string();
+
+        let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("version file");
+
+        // Generate preview of the change
+        let change_preview = match ctx.config.project.language {
+            Language::Rust => {
+                format!("  - {}: \"{}\" → \"{}\"", file_name, current, new_version_str)
+            }
+            Language::Node => {
+                format!("  - {}: \"{}\" → \"{}\"", file_name, current, new_version_str)
+            }
+            Language::Python => {
+                format!("  - {}: \"{}\" → \"{}\"", file_name, current, new_version_str)
+            }
+            _ => format!("  - {}: {} → {}", file_name, current, new_version_str),
+        };
+
+        let file_change = crate::steps::FileChange {
+            path: path.display().to_string(),
+            operation: crate::steps::FileOperation::Modify,
+            diff: Some(change_preview),
+        };
+
+        let details = crate::steps::DryRunDetails {
+            file_changes: vec![file_change],
+            docker_preview: None,
+            notes: vec![format!(
+                "Version bump from {} to {} ({} bump)",
+                current, new_version_str, self.bump_type
+            )],
+        };
 
         Ok(StepOutput::ok(format!(
             "Would bump version from {} to {}",
             current, new_version
-        )))
+        )).with_dry_run_details(details))
     }
 
     async fn rollback(&self, _ctx: &StepContext) -> Result<()> {

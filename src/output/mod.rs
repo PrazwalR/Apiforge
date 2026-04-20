@@ -31,6 +31,63 @@ impl OutputManager {
         };
         let timing = format!("({}ms)", output.duration_ms).dimmed();
         println!("  {} {} {} {}", icon, name.bold(), output.message, timing);
+
+        // Display dry-run details if present
+        if let Some(ref details) = output.dry_run_details {
+            self.print_dry_run_details(details);
+        }
+    }
+
+    fn print_dry_run_details(&self, details: &crate::steps::DryRunDetails) {
+        // Print file changes
+        for change in &details.file_changes {
+            let op_icon = match change.operation {
+                crate::steps::FileOperation::Create => "+",
+                crate::steps::FileOperation::Modify => "~",
+                crate::steps::FileOperation::Delete => "-",
+            };
+            println!(
+                "    {} {} {} {}",
+                "├─".dimmed(),
+                op_icon.yellow(),
+                change.path.dimmed(),
+                format!("({:?})", change.operation).dimmed()
+            );
+            if let Some(ref diff) = change.diff {
+                for line in diff.lines() {
+                    println!("    {} {}", "│".dimmed(), line.cyan());
+                }
+            }
+        }
+
+        // Print Docker preview
+        if let Some(ref docker) = details.docker_preview {
+            println!(
+                "    {} {} {}",
+                "├─".dimmed(),
+                "📦".to_string().yellow(),
+                format!("Docker image: {}", docker.image_name).dimmed()
+            );
+            println!(
+                "    {} {} {}",
+                "│".dimmed(),
+                "🏷️".dimmed(),
+                format!("Tags: {}", docker.tags.join(", ")).dimmed()
+            );
+            if let Some(layers) = docker.layers_estimate {
+                println!(
+                    "    {} {} {}",
+                    "│".dimmed(),
+                    "📚".dimmed(),
+                    format!("Estimated layers: {}", layers).dimmed()
+                );
+            }
+        }
+
+        // Print notes
+        for note in &details.notes {
+            println!("    {} {} {}", "├─".dimmed(), "ℹ".dimmed(), note.dimmed());
+        }
     }
 
     pub fn step_fail(&self, name: &str, error: &str) {

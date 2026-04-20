@@ -39,6 +39,9 @@ pub enum Commands {
 
     /// Show current deployment status
     Status,
+
+    /// Configuration management commands
+    Config(ConfigArgs),
 }
 
 #[derive(Parser)]
@@ -119,4 +122,27 @@ pub struct HistoryArgs {
     /// Filter by status
     #[arg(long, value_parser = ["success", "failed"])]
     pub filter: Option<String>,
+}
+
+#[derive(Parser)]
+pub struct ConfigArgs {
+    #[command(subcommand)]
+    pub command: ConfigCommands,
+}
+
+#[derive(Subcommand)]
+pub enum ConfigCommands {
+    /// Validate configuration file with detailed output
+    Validate(ConfigValidateArgs),
+}
+
+#[derive(Parser)]
+pub struct ConfigValidateArgs {
+    /// Output format
+    #[arg(long, value_parser = ["text", "json"], default_value = "text")]
+    pub output: String,
+
+    /// Show verbose output with all checks
+    #[arg(long)]
+    pub verbose: bool,
 }

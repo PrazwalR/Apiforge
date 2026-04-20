@@ -127,6 +127,10 @@ impl Step for DockerPushStep {
     }
 
     async fn validate(&self, ctx: &StepContext) -> Result<()> {
+        if ctx.dry_run {
+            return Ok(());
+        }
+
         let _docker = DockerClient::new().await?;
 
         // For ECR, verify credentials and ensure repository exists

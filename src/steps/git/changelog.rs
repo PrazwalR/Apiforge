@@ -119,6 +119,28 @@ impl ChangelogStep {
 
         Ok(())
     }
+
+    fn categorize_commits(commits: &[String]) -> (usize, usize, usize) {
+        let mut features = 0;
+        let mut fixes = 0;
+        let mut other = 0;
+
+        for commit in commits {
+            let msg = commit.trim();
+            if msg.is_empty() {
+                continue;
+            }
+            if msg.starts_with("feat:") || msg.starts_with("feature:") {
+                features += 1;
+            } else if msg.starts_with("fix:") {
+                fixes += 1;
+            } else {
+                other += 1;
+            }
+        }
+
+        (features, fixes, other)
+    }
 }
 
 #[async_trait]
@@ -166,10 +188,40 @@ impl Step for ChangelogStep {
             Vec::new()
         };
 
+        // Generate preview
+        let preview_content = Self::format_changelog(&self.version,
+            &commits, self.previous_tag.as_deref()
+        );
+
+        // Count categorized commits
+        let commit_messages: Vec<String> = commits
+            .iter()
+            .map(|c| c.message.lines().next().unwrap_or("").to_string())
+            .collect();
+        let (features, fixes, other) = Self::categorize_commits(&commit_messages);
+
+        let details = crate::steps::DryRunDetails {
+            file_changes: vec![crate::steps::FileChange {
+                path: "CHANGELOG.md".to_string(),
+                operation: crate::steps::FileOperation::Modify,
+                diff: None,
+            }],
+            docker_preview: None,
+            notes: vec![
+                format!("Found {} new commits", commits.len()),
+                format!("  - {} features, {} fixes, {} other", features, fixes, other),
+                if commits.is_empty() {
+                    "⚠ No commits since last tag - changelog will be empty".to_string()
+                } else {
+                    format!("Preview:\n{}", preview_content.lines().take(20).collect::<Vec<_>>().join("\n"))
+                },
+            ],
+        };
+
         Ok(StepOutput::ok(format!(
             "Would generate changelog with {} commits",
             commits.len()
-        )))
+        )).with_dry_run_details(details))
     }
 
     async fn rollback(&self, _ctx: &StepContext) -> Result<()> {

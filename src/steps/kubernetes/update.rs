@@ -68,6 +68,10 @@ impl Step for K8sUpdateStep {
     }
 
     async fn validate(&self, ctx: &StepContext) -> Result<()> {
+        if ctx.dry_run {
+            return Ok(());
+        }
+
         let k8s = K8sClient::new(&ctx.config.kubernetes.context).await?;
 
         // Verify namespace exists

@@ -24,6 +24,43 @@ pub struct StepOutput {
     pub message: String,
     /// Execution duration in milliseconds.
     pub duration_ms: u64,
+    /// Detailed dry-run information (file changes, etc.).
+    pub dry_run_details: Option<DryRunDetails>,
+}
+
+#[derive(Debug, Clone)]
+/// Detailed information for dry-run mode.
+pub struct DryRunDetails {
+    /// File operations that would be performed.
+    pub file_changes: Vec<FileChange>,
+    /// Docker operations preview.
+    pub docker_preview: Option<DockerPreview>,
+    /// Additional notes for user.
+    pub notes: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+/// Represents a file change (create, modify, delete).
+pub struct FileChange {
+    pub path: String,
+    pub operation: FileOperation,
+    pub diff: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FileOperation {
+    Create,
+    Modify,
+    Delete,
+}
+
+#[derive(Debug, Clone)]
+/// Docker-specific preview information.
+pub struct DockerPreview {
+    pub image_name: String,
+    pub tags: Vec<String>,
+    pub build_args: Vec<(String, String)>,
+    pub layers_estimate: Option<usize>,
 }
 
 impl StepOutput {
@@ -32,6 +69,7 @@ impl StepOutput {
             status: StepStatus::Success,
             message: message.into(),
             duration_ms: 0,
+            dry_run_details: None,
         }
     }
 
@@ -40,7 +78,13 @@ impl StepOutput {
             status: StepStatus::Skipped,
             message: message.into(),
             duration_ms: 0,
+            dry_run_details: None,
         }
+    }
+
+    pub fn with_dry_run_details(mut self, details: DryRunDetails) -> Self {
+        self.dry_run_details = Some(details);
+        self
     }
 }
 

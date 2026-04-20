@@ -27,6 +27,7 @@ async fn main() -> anyhow::Result<()> {
         Commands::Rollback(args) => cmd_rollback(&cli.config, args).await,
         Commands::History(args) => cmd_history(args).await,
         Commands::Status => cmd_status(&cli.config).await,
+        Commands::Config(args) => cmd_config(&cli.config, args).await,
     }
 }
 
@@ -683,4 +684,322 @@ async fn cmd_status(config_path: &str) -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+async fn cmd_config(config_path: &str, args: apiforge::cli::ConfigArgs) -> anyhow::Result<()> {
+    use apiforge::cli::ConfigCommands;
+
+    match args.command {
+        ConfigCommands::Validate(validate_args) => {
+            cmd_config_validate(config_path, validate_args).await
+        }
+    }
+}
+
+async fn cmd_config_validate(
+    config_path: &str,
+    args: apiforge::cli::ConfigValidateArgs,
+) -> anyhow::Result<()> {
+    use colored::Colorize;
+
+    let path = PathBuf::from(config_path);
+
+    // Structure to hold validation results
+    let mut checks: Vec<(String, bool, Option<String>)> = Vec::new();
+    let mut all_ok = true;
+
+    // Check 1: File exists
+    let file_exists = path.exists();
+    checks.push((
+        "Configuration file exists".to_string(),
+        file_exists,
+        if file_exists {
+            None
+        } else {
+            Some(format!("File not found: {}", path.display()))
+        },
+    ));
+
+    if !file_exists {
+        all_ok = false;
+    } else {
+        // Check 2: File readable
+        let content_result = std::fs::read_to_string(&path);
+        let readable = content_result.is_ok();
+        let content_error_msg = content_result.as_ref().err().map(|e| e.to_string());
+        checks.push((
+            "Configuration file readable".to_string(),
+            readable,
+            content_error_msg,
+        ));
+
+        if let Ok(content) = content_result {
+
+            // Check 3: Valid TOML
+            let toml_result: Result<toml::Value, _> = toml::from_str(&content);
+            let valid_toml = toml_result.is_ok();
+            let toml_error_msg = toml_result.as_ref().err().map(|e| e.to_string());
+            checks.push((
+                "Valid TOML syntax".to_string(),
+                valid_toml,
+                toml_error_msg,
+            ));
+
+            if toml_result.is_ok() {
+                // Check 4: Schema validation (Config struct)
+                let config_result = Config::from_file(&path);
+                let valid_schema = config_result.is_ok();
+                let config_error_msg = config_result.as_ref().err().map(|e| e.to_string());
+                checks.push((
+                    "Valid configuration schema".to_string(),
+                    valid_schema,
+                    config_error_msg,
+                ));
+
+                if let Ok(config) = config_result {
+
+                    // Check 5: Project configuration
+                    checks.push((
+                        "Project name specified".to_string(),
+                        !config.project.name.is_empty(),
+                        if config.project.name.is_empty() {
+                            Some("Project name is empty".to_string())
+                        } else {
+                            None
+                        },
+                    ));
+
+                    // Check 6: Git configuration
+                    let tag_format_valid = config.git.tag_format.contains("{version}");
+                    checks.push((
+                        "Git tag format contains {version}".to_string(),
+                        tag_format_valid,
+                        if tag_format_valid {
+                            None
+                        } else {
+                            Some(format!(
+                                "tag_format '{}' must contain {{version}} placeholder",
+                                config.git.tag_format
+                            ))
+                        },
+                    ));
+
+                    // Check 7: Docker configuration
+                    checks.push((
+                        "Docker repository specified".to_string(),
+                        !config.docker.repository.is_empty(),
+                        if config.docker.repository.is_empty() {
+                            Some("Docker repository is empty".to_string())
+                        } else {
+                            None
+                        },
+                    ));
+
+                    let has_docker_tags = !config.docker.tags.is_empty();
+                    checks.push((
+                        "Docker tags specified".to_string(),
+                        has_docker_tags,
+                        if has_docker_tags {
+                            None
+                        } else {
+                            Some("At least one Docker tag is required".to_string())
+                        },
+                    ));
+
+                    // Check 8: Kubernetes configuration
+                    checks.push((
+                        "Kubernetes namespace specified".to_string(),
+                        !config.kubernetes.namespace.is_empty(),
+                        None,
+                    ));
+                    checks.push((
+                        "Kubernetes deployment specified".to_string(),
+                        !config.kubernetes.deployment.is_empty(),
+                        None,
+                    ));
+                    checks.push((
+                        "Kubernetes context specified".to_string(),
+                        !config.kubernetes.context.is_empty(),
+                        None,
+                    ));
+
+                    // Check 9: AWS configuration (if ECR)
+                    let ecr_check = if matches!(config.docker.registry, apiforge::config::DockerRegistry::AwsEcr) {
+                        let has_region = !config.aws.region.is_empty();
+                        (
+                            "AWS region specified (for ECR)".to_string(),
+                            has_region,
+                            if has_region {
+                                None
+                            } else {
+                                Some("AWS region is required when using ECR".to_string())
+                            },
+                        )
+                    } else {
+                        ("AWS region (not required for non-ECR)".to_string(), true, None)
+                    };
+                    checks.push(ecr_check);
+
+                    // Check 10: GitHub configuration (if present)
+                    if let Some(ref github) = config.github {
+                        let repo_valid = !github.repository.is_empty() && github.repository.contains('/');
+                        checks.push((
+                            "GitHub repository format valid".to_string(),
+                            repo_valid,
+                            if repo_valid {
+                                None
+                            } else {
+                                Some(format!(
+                                    "GitHub repository '{}' must be in 'owner/repo' format",
+                                    github.repository
+                                ))
+                            },
+                        ));
+                    }
+
+                    // Check 11: Health check configuration (if present)
+                    if let Some(ref hc) = config.health_check {
+                        let url_valid = !hc.url.is_empty() && (hc.url.starts_with("http://") || hc.url.starts_with("https://"));
+                        checks.push((
+                            "Health check URL valid".to_string(),
+                            url_valid,
+                            if url_valid {
+                                None
+                            } else {
+                                Some(format!(
+                                    "Health check URL '{}' must start with http:// or https://",
+                                    hc.url
+                                ))
+                            },
+                        ));
+
+                        let interval_valid = hc.interval > 0;
+                        checks.push((
+                            "Health check interval > 0".to_string(),
+                            interval_valid,
+                            if interval_valid {
+                                None
+                            } else {
+                                Some("Health check interval must be greater than 0".to_string())
+                            },
+                        ));
+
+                        let timeout_valid = hc.timeout > 0;
+                        checks.push((
+                            "Health check timeout > 0".to_string(),
+                            timeout_valid,
+                            if timeout_valid {
+                                None
+                            } else {
+                                Some("Health check timeout must be greater than 0".to_string())
+                            },
+                        ));
+                    }
+
+                    // Check 12: Notifications configuration (if present)
+                    if let Some(ref notifications) = config.notifications {
+                        if let Some(ref slack) = notifications.slack {
+                            let webhook_valid = !slack.webhook_url.is_empty() && slack.webhook_url.starts_with("https://hooks.slack.com");
+                            checks.push((
+                                "Slack webhook URL format valid".to_string(),
+                                webhook_valid,
+                                if webhook_valid {
+                                    None
+                                } else {
+                                    Some(format!(
+                                        "Slack webhook URL should start with https://hooks.slack.com (got: {})",
+                                        &slack.webhook_url[..slack.webhook_url.len().min(30)]
+                                    ))
+                                },
+                            ));
+                        }
+                    }
+
+                    // Verbose mode: Additional informational checks
+                    if args.verbose {
+                        checks.push((
+                            format!("Language: {:?}", config.project.language),
+                            true,
+                            None,
+                        ));
+                        checks.push((
+                            format!("Registry: {:?}", config.docker.registry),
+                            true,
+                            None,
+                        ));
+                        checks.push((
+                            format!("Main branch: {}", config.git.main_branch),
+                            true,
+                            None,
+                        ));
+                        checks.push((
+                            format!("Timeout settings: fetch={}s push={}s op={}s",
+                                config.git.fetch_timeout_secs,
+                                config.git.push_timeout_secs,
+                                config.git.operation_timeout_secs
+                            ),
+                            true,
+                            None,
+                        ));
+                    }
+                } else {
+                    all_ok = false;
+                }
+            } else {
+                all_ok = false;
+            }
+        } else {
+            all_ok = false;
+        }
+    }
+
+    // Count failures
+    let failures: Vec<_> = checks.iter().filter(|(_, ok, _)| !ok).collect();
+    if !failures.is_empty() {
+        all_ok = false;
+    }
+
+    // Output results
+    if args.output == "json" {
+        let result = serde_json::json!({
+            "valid": all_ok,
+            "file": config_path,
+            "checks": checks.iter().map(|(name, ok, error)| {
+                serde_json::json!({
+                    "name": name,
+                    "passed": *ok,
+                    "error": error
+                })
+            }).collect::<Vec<_>>()
+        });
+        println!("{}", serde_json::to_string_pretty(&result)?);
+    } else {
+        println!("\n{}", "▸ Configuration Validation".bold().cyan());
+        println!("  File: {}\n", path.display().to_string().dimmed());
+
+        for (name, ok, error) in &checks {
+            let status = if *ok {
+                "✓".green()
+            } else {
+                "✗".red()
+            };
+            println!("  {} {}", status, name);
+            if let Some(ref err) = error {
+                println!("    {} {}", "→".dimmed(), err.dimmed());
+            }
+        }
+
+        println!();
+        if all_ok {
+            println!("{}", "  ✓ Configuration is valid!".green().bold());
+        } else {
+            println!("{}", "  ✗ Configuration has errors".red().bold());
+        }
+    }
+
+    if all_ok {
+        Ok(())
+    } else {
+        anyhow::bail!("Configuration validation failed");
+    }
 }

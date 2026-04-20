@@ -70,6 +70,10 @@ impl Step for GitHubReleaseStep {
     }
 
     async fn validate(&self, ctx: &StepContext) -> Result<()> {
+        if ctx.dry_run {
+            return Ok(());
+        }
+
         let github_config = ctx
             .config
             .github

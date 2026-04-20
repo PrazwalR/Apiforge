@@ -12,4 +12,8 @@ ignore = [
     "RUSTSEC-2025-0134", # rustls-pemfile (unmaintained)
     # Transitive dependency through tera, mockito, kube-runtime (rand 0.8.5 unsound).
     "RUSTSEC-2026-0097", # rand (unsound with custom logger)
+    # Transitive rustls-webpki vulnerabilities pulled via kube/aws/reqwest stacks.
+    # No compatible patched path for all dependency branches on current versions.
+    "RUSTSEC-2026-0098", # rustls-webpki (name constraints for URI names)
+    "RUSTSEC-2026-0099", # rustls-webpki (wildcard name constraints)
 ]
