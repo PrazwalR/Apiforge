@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.6] - 2026-05-21
+
+### Fixed
+- rustfmt formatting across dry-run previews and config validation output.
+- README MSRV badge and prerequisite text aligned to Rust 1.91.1+.
+- cargo-audit config updated to ignore RUSTSEC-2026-0104 (transitive rustls-webpki CRL parsing panic).
+
 ## [0.2.5] - 2026-05-21
 
 ### Fixed
