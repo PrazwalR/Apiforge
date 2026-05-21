@@ -5,7 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.2.4] - 2026-05-21
+## [0.2.5] - 2026-05-21
+
+### Fixed
+- CI action versions updated to latest (checkout@v6, upload-artifact@v7, download-artifact@v8).
+- MSRV documentation updated to reflect Rust 1.91.1 minimum.
+- Security audit configuration stabilized with documented advisory ignores.
+- Changelog timestamp formatting improved.
+
+## [0.2.4] - 2026-04-12
 
 ### Fixed
 - Release workflow now targets `macos-15-intel` for `x86_64-apple-darwin` so the amd64 macOS artifact builds on a native Intel runner.
