@@ -244,18 +244,30 @@ impl Step for VersionBumpStep {
         let new_version = bump_version(&current, self.bump_type)?;
         let new_version_str = new_version.to_string();
 
-        let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("version file");
+        let file_name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("version file");
 
         // Generate preview of the change
         let change_preview = match ctx.config.project.language {
             Language::Rust => {
-                format!("  - {}: \"{}\" → \"{}\"", file_name, current, new_version_str)
+                format!(
+                    "  - {}: \"{}\" → \"{}\"",
+                    file_name, current, new_version_str
+                )
             }
             Language::Node => {
-                format!("  - {}: \"{}\" → \"{}\"", file_name, current, new_version_str)
+                format!(
+                    "  - {}: \"{}\" → \"{}\"",
+                    file_name, current, new_version_str
+                )
             }
             Language::Python => {
-                format!("  - {}: \"{}\" → \"{}\"", file_name, current, new_version_str)
+                format!(
+                    "  - {}: \"{}\" → \"{}\"",
+                    file_name, current, new_version_str
+                )
             }
             _ => format!("  - {}: {} → {}", file_name, current, new_version_str),
         };
@@ -278,7 +290,8 @@ impl Step for VersionBumpStep {
         Ok(StepOutput::ok(format!(
             "Would bump version from {} to {}",
             current, new_version
-        )).with_dry_run_details(details))
+        ))
+        .with_dry_run_details(details))
     }
 
     async fn rollback(&self, _ctx: &StepContext) -> Result<()> {

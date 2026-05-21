@@ -178,7 +178,8 @@ impl AuditStore {
 
         if saved > 0 {
             let reduction_percent = if size_before > 0 {
-                saved.checked_mul(100)
+                saved
+                    .checked_mul(100)
                     .and_then(|product| product.checked_div(size_before))
                     .unwrap_or_default()
             } else {

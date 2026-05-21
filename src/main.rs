@@ -734,16 +734,11 @@ async fn cmd_config_validate(
         ));
 
         if let Ok(content) = content_result {
-
             // Check 3: Valid TOML
             let toml_result: Result<toml::Value, _> = toml::from_str(&content);
             let valid_toml = toml_result.is_ok();
             let toml_error_msg = toml_result.as_ref().err().map(|e| e.to_string());
-            checks.push((
-                "Valid TOML syntax".to_string(),
-                valid_toml,
-                toml_error_msg,
-            ));
+            checks.push(("Valid TOML syntax".to_string(), valid_toml, toml_error_msg));
 
             if toml_result.is_ok() {
                 // Check 4: Schema validation (Config struct)
@@ -757,7 +752,6 @@ async fn cmd_config_validate(
                 ));
 
                 if let Ok(config) = config_result {
-
                     // Check 5: Project configuration
                     checks.push((
                         "Project name specified".to_string(),
@@ -824,7 +818,10 @@ async fn cmd_config_validate(
                     ));
 
                     // Check 9: AWS configuration (if ECR)
-                    let ecr_check = if matches!(config.docker.registry, apiforge::config::DockerRegistry::AwsEcr) {
+                    let ecr_check = if matches!(
+                        config.docker.registry,
+                        apiforge::config::DockerRegistry::AwsEcr
+                    ) {
                         let has_region = !config.aws.region.is_empty();
                         (
                             "AWS region specified (for ECR)".to_string(),
@@ -836,13 +833,18 @@ async fn cmd_config_validate(
                             },
                         )
                     } else {
-                        ("AWS region (not required for non-ECR)".to_string(), true, None)
+                        (
+                            "AWS region (not required for non-ECR)".to_string(),
+                            true,
+                            None,
+                        )
                     };
                     checks.push(ecr_check);
 
                     // Check 10: GitHub configuration (if present)
                     if let Some(ref github) = config.github {
-                        let repo_valid = !github.repository.is_empty() && github.repository.contains('/');
+                        let repo_valid =
+                            !github.repository.is_empty() && github.repository.contains('/');
                         checks.push((
                             "GitHub repository format valid".to_string(),
                             repo_valid,
@@ -859,7 +861,8 @@ async fn cmd_config_validate(
 
                     // Check 11: Health check configuration (if present)
                     if let Some(ref hc) = config.health_check {
-                        let url_valid = !hc.url.is_empty() && (hc.url.starts_with("http://") || hc.url.starts_with("https://"));
+                        let url_valid = !hc.url.is_empty()
+                            && (hc.url.starts_with("http://") || hc.url.starts_with("https://"));
                         checks.push((
                             "Health check URL valid".to_string(),
                             url_valid,
@@ -899,7 +902,8 @@ async fn cmd_config_validate(
                     // Check 12: Notifications configuration (if present)
                     if let Some(ref notifications) = config.notifications {
                         if let Some(ref slack) = notifications.slack {
-                            let webhook_valid = !slack.webhook_url.is_empty() && slack.webhook_url.starts_with("https://hooks.slack.com");
+                            let webhook_valid = !slack.webhook_url.is_empty()
+                                && slack.webhook_url.starts_with("https://hooks.slack.com");
                             checks.push((
                                 "Slack webhook URL format valid".to_string(),
                                 webhook_valid,
@@ -933,7 +937,8 @@ async fn cmd_config_validate(
                             None,
                         ));
                         checks.push((
-                            format!("Timeout settings: fetch={}s push={}s op={}s",
+                            format!(
+                                "Timeout settings: fetch={}s push={}s op={}s",
                                 config.git.fetch_timeout_secs,
                                 config.git.push_timeout_secs,
                                 config.git.operation_timeout_secs
@@ -978,11 +983,7 @@ async fn cmd_config_validate(
         println!("  File: {}\n", path.display().to_string().dimmed());
 
         for (name, ok, error) in &checks {
-            let status = if *ok {
-                "✓".green()
-            } else {
-                "✗".red()
-            };
+            let status = if *ok { "✓".green() } else { "✗".red() };
             println!("  {} {}", status, name);
             if let Some(ref err) = error {
                 println!("    {} {}", "→".dimmed(), err.dimmed());

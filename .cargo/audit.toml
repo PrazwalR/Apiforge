@@ -16,4 +16,5 @@ ignore = [
     # No compatible patched path for all dependency branches on current versions.
     "RUSTSEC-2026-0098", # rustls-webpki (name constraints for URI names)
     "RUSTSEC-2026-0099", # rustls-webpki (wildcard name constraints)
+    "RUSTSEC-2026-0104", # rustls-webpki (CRL parsing panic)
 ]

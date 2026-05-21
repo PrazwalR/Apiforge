@@ -148,12 +148,17 @@ impl Step for DockerBuildStep {
         let tags = self.get_image_tags(ctx);
 
         // Calculate estimated layers
-        let dockerfile_path = std::path::Path::new(&ctx.config.docker.context)
-            .join(&ctx.config.docker.dockerfile);
+        let dockerfile_path =
+            std::path::Path::new(&ctx.config.docker.context).join(&ctx.config.docker.dockerfile);
         let layers_estimate = if dockerfile_path.exists() {
             std::fs::read_to_string(&dockerfile_path)
                 .ok()
-                .map(|content| content.lines().filter(|l| l.starts_with("FROM") || l.starts_with("RUN")).count())
+                .map(|content| {
+                    content
+                        .lines()
+                        .filter(|l| l.starts_with("FROM") || l.starts_with("RUN"))
+                        .count()
+                })
         } else {
             None
         };
@@ -161,14 +166,26 @@ impl Step for DockerBuildStep {
         let docker_preview = crate::steps::DockerPreview {
             image_name: full_image_name.clone(),
             tags: tags.clone(),
-            build_args: ctx.config.docker.build_args.clone().unwrap_or_default().into_iter().collect(),
+            build_args: ctx
+                .config
+                .docker
+                .build_args
+                .clone()
+                .unwrap_or_default()
+                .into_iter()
+                .collect(),
             layers_estimate,
         };
 
         let notes = vec![
             format!("Dockerfile: {}", dockerfile_path.display()),
             format!("Build context: {}", ctx.config.docker.context),
-            format!("Estimated layers: {}", layers_estimate.map(|l| l.to_string()).unwrap_or_else(|| "unknown".to_string())),
+            format!(
+                "Estimated layers: {}",
+                layers_estimate
+                    .map(|l| l.to_string())
+                    .unwrap_or_else(|| "unknown".to_string())
+            ),
         ];
 
         let details = crate::steps::DryRunDetails {
@@ -181,6 +198,7 @@ impl Step for DockerBuildStep {
             "Would build {} with tags: {}",
             full_image_name,
             tags.join(", ")
-        )).with_dry_run_details(details))
+        ))
+        .with_dry_run_details(details))
     }
 }

@@ -189,9 +189,8 @@ impl Step for ChangelogStep {
         };
 
         // Generate preview
-        let preview_content = Self::format_changelog(&self.version,
-            &commits, self.previous_tag.as_deref()
-        );
+        let preview_content =
+            Self::format_changelog(&self.version, &commits, self.previous_tag.as_deref());
 
         // Count categorized commits
         let commit_messages: Vec<String> = commits
@@ -209,11 +208,21 @@ impl Step for ChangelogStep {
             docker_preview: None,
             notes: vec![
                 format!("Found {} new commits", commits.len()),
-                format!("  - {} features, {} fixes, {} other", features, fixes, other),
+                format!(
+                    "  - {} features, {} fixes, {} other",
+                    features, fixes, other
+                ),
                 if commits.is_empty() {
                     "⚠ No commits since last tag - changelog will be empty".to_string()
                 } else {
-                    format!("Preview:\n{}", preview_content.lines().take(20).collect::<Vec<_>>().join("\n"))
+                    format!(
+                        "Preview:\n{}",
+                        preview_content
+                            .lines()
+                            .take(20)
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    )
                 },
             ],
         };
@@ -221,7 +230,8 @@ impl Step for ChangelogStep {
         Ok(StepOutput::ok(format!(
             "Would generate changelog with {} commits",
             commits.len()
-        )).with_dry_run_details(details))
+        ))
+        .with_dry_run_details(details))
     }
 
     async fn rollback(&self, _ctx: &StepContext) -> Result<()> {
