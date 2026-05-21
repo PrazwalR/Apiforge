@@ -55,7 +55,7 @@ aws-sdk-cloudfront = "1"
 aws-sdk-sts = "1"
 
 # GitHub
-octocrab = "0.41"
+octocrab = "0.49"
 
 # HTTP
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
