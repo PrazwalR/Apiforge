@@ -83,7 +83,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "=1.13.1", features = ["v4", "serde"] }
 semver = "1"
 base64 = "0.22"
-which = "6"
+which = "8"
 regex = "1"
 dialoguer = "0.11"
 
