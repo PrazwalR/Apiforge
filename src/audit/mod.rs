@@ -177,15 +177,18 @@ impl AuditStore {
         let saved = size_before.saturating_sub(size_after);
 
         if saved > 0 {
+            let reduction_percent = if size_before > 0 {
+                saved.checked_mul(100)
+                    .and_then(|product| product.checked_div(size_before))
+                    .unwrap_or_default()
+            } else {
+                0
+            };
             info!(
                 "Compaction completed: freed {} bytes ({} MB) ({}% reduction)",
                 saved,
                 saved / 1_048_576,
-                if size_before > 0 {
-                    saved * 100 / size_before
-                } else {
-                    0
-                }
+                reduction_percent
             );
         } else {
             info!(
